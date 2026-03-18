@@ -33,6 +33,10 @@ export default function App() {
       <main className="main-content">
         {view === 'home' ? <HomeView /> : <SettingsView />}
       </main>
+
+      <footer className="footer">
+        made with ❤️ by uriel
+      </footer>
     </div>
   )
 }

@@ -280,7 +280,9 @@ func (a *App) SyncToTest() error {
 	}
 	defer testSFTP.Close()
 
-	if err := uploadFile(testSFTP, localPath, testRemoteFile); err != nil {
+	if err := uploadFile(testSFTP, localPath, testRemoteFile, func(pct int) {
+		a.emit("test:progress", fmt.Sprintf("Uploading... %d%%", pct))
+	}); err != nil {
 		return a.fail("test:error", "Upload failed: %v", err)
 	}
 
@@ -497,12 +499,17 @@ func downloadFile(sftpClient *sftp.Client, remotePath, localPath string) error {
 	return err
 }
 
-func uploadFile(sftpClient *sftp.Client, localPath, remotePath string) error {
+func uploadFile(sftpClient *sftp.Client, localPath, remotePath string, onProgress func(pct int)) error {
 	local, err := os.Open(localPath)
 	if err != nil {
 		return fmt.Errorf("could not open local file: %w", err)
 	}
 	defer local.Close()
+
+	info, err := local.Stat()
+	if err != nil {
+		return fmt.Errorf("could not stat local file: %w", err)
+	}
 
 	remote, err := sftpClient.Create(remotePath)
 	if err != nil {
@@ -510,6 +517,30 @@ func uploadFile(sftpClient *sftp.Client, localPath, remotePath string) error {
 	}
 	defer remote.Close()
 
-	_, err = io.Copy(remote, local)
+	_, err = io.Copy(remote, &progressReader{
+		r:          local,
+		total:      info.Size(),
+		onProgress: onProgress,
+	})
 	return err
+}
+
+type progressReader struct {
+	r          io.Reader
+	total      int64
+	read       int64
+	lastReport int64
+	onProgress func(pct int)
+}
+
+func (p *progressReader) Read(buf []byte) (int, error) {
+	n, err := p.r.Read(buf)
+	p.read += int64(n)
+	// Report every 5 MB to avoid flooding
+	if p.onProgress != nil && p.read-p.lastReport >= 5*1024*1024 {
+		p.lastReport = p.read
+		pct := int(float64(p.read) / float64(p.total) * 100)
+		p.onProgress(pct)
+	}
+	return n, err
 }

@@ -43,12 +43,17 @@ type Config struct {
 	Local      LocalConfig  `json:"local"`
 }
 
+// TransferProgress is emitted during uploads and downloads.
+type TransferProgress struct {
+	Bytes int64 `json:"bytes"`
+	Total int64 `json:"total"`
+}
+
 // App is the main Wails application struct.
 type App struct {
 	ctx    context.Context
 	config Config
 
-	// cancellation
 	cancelMu sync.Mutex
 	cancelFn context.CancelFunc
 }
@@ -111,7 +116,6 @@ func (a *App) SaveConfig(cfg Config) error {
 
 // ── Cancellation ──────────────────────────────────────────────────────────────
 
-// newOpCtx creates a fresh cancellable context for an operation.
 func (a *App) newOpCtx() context.Context {
 	a.cancelMu.Lock()
 	defer a.cancelMu.Unlock()
@@ -120,7 +124,6 @@ func (a *App) newOpCtx() context.Context {
 	return ctx
 }
 
-// Cancel cancels the currently running operation.
 func (a *App) Cancel() {
 	a.cancelMu.Lock()
 	defer a.cancelMu.Unlock()
@@ -130,17 +133,19 @@ func (a *App) Cancel() {
 	}
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Events ────────────────────────────────────────────────────────────────────
 
-func (a *App) emit(event, message string) {
-	runtime.EventsEmit(a.ctx, event, message)
+func (a *App) emit(event string, data any) {
+	runtime.EventsEmit(a.ctx, event, data)
 }
 
-func (a *App) fail(event, format string, args ...any) error {
+func (a *App) fail(errEvent, progressEvent, format string, args ...any) error {
 	msg := fmt.Sprintf(format, args...)
-	a.emit(event, msg)
+	a.emit(errEvent, msg)
 	return fmt.Errorf("%s", msg)
 }
+
+// ── SSH helpers ───────────────────────────────────────────────────────────────
 
 func buildSSHClientConfig(s ServerConfig) (*ssh.ClientConfig, error) {
 	var authMethods []ssh.AuthMethod
@@ -189,16 +194,6 @@ func dialSSH(s ServerConfig) (*ssh.Client, error) {
 	return ssh.Dial("tcp", fmt.Sprintf("%s:22", s.ServerIP), cfg)
 }
 
-func localDumpPath(dbName string) (fullPath, fileName string, err error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", "", err
-	}
-	fileName = fmt.Sprintf("%s_%s_dump.sql.gz", dbName, time.Now().Format("2006-01-02_150405"))
-	fullPath = filepath.Join(home, "Downloads", fileName)
-	return fullPath, fileName, nil
-}
-
 func runSSHCommand(client *ssh.Client, cmd string) error {
 	session, err := client.NewSession()
 	if err != nil {
@@ -212,12 +207,28 @@ func runSSHCommand(client *ssh.Client, cmd string) error {
 	return nil
 }
 
-func downloadFile(ctx context.Context, sftpClient *sftp.Client, remotePath, localPath string) error {
+func runSSHCommandBestEffort(s ServerConfig, cmd string) {
+	client, err := dialSSH(s)
+	if err != nil {
+		return
+	}
+	defer client.Close()
+	runSSHCommand(client, cmd)
+}
+
+// ── Transfer helpers ──────────────────────────────────────────────────────────
+
+func downloadFile(ctx context.Context, sftpClient *sftp.Client, remotePath, localPath string, onBytes func(bytes, total int64)) error {
 	remote, err := sftpClient.Open(remotePath)
 	if err != nil {
 		return fmt.Errorf("could not open remote file: %w", err)
 	}
 	defer remote.Close()
+
+	info, err := remote.Stat()
+	if err != nil {
+		return fmt.Errorf("could not stat remote file: %w", err)
+	}
 
 	local, err := os.Create(localPath)
 	if err != nil {
@@ -225,11 +236,15 @@ func downloadFile(ctx context.Context, sftpClient *sftp.Client, remotePath, loca
 	}
 	defer local.Close()
 
-	_, err = io.Copy(local, &ctxReader{r: remote, ctx: ctx})
+	_, err = io.Copy(local, &progressReader{
+		r:       &ctxReader{r: remote, ctx: ctx},
+		total:   info.Size(),
+		onBytes: onBytes,
+	})
 	return err
 }
 
-func uploadFile(ctx context.Context, sftpClient *sftp.Client, localPath, remotePath string, onProgress func(pct int)) error {
+func uploadFile(ctx context.Context, sftpClient *sftp.Client, localPath, remotePath string, onBytes func(bytes, total int64)) error {
 	local, err := os.Open(localPath)
 	if err != nil {
 		return fmt.Errorf("could not open local file: %w", err)
@@ -248,14 +263,13 @@ func uploadFile(ctx context.Context, sftpClient *sftp.Client, localPath, remoteP
 	defer remote.Close()
 
 	_, err = io.Copy(remote, &progressReader{
-		r:          &ctxReader{r: local, ctx: ctx},
-		total:      info.Size(),
-		onProgress: onProgress,
+		r:       &ctxReader{r: local, ctx: ctx},
+		total:   info.Size(),
+		onBytes: onBytes,
 	})
 	return err
 }
 
-// ctxReader wraps a reader and checks context cancellation on every read.
 type ctxReader struct {
 	r   io.Reader
 	ctx context.Context
@@ -275,21 +289,30 @@ type progressReader struct {
 	total      int64
 	read       int64
 	lastReport int64
-	onProgress func(pct int)
+	onBytes    func(bytes, total int64)
 }
 
 func (p *progressReader) Read(buf []byte) (int, error) {
 	n, err := p.r.Read(buf)
 	p.read += int64(n)
-	if p.onProgress != nil && p.read-p.lastReport >= 5*1024*1024 {
+	// Report every 256 KB for smooth UI
+	if p.onBytes != nil && p.read-p.lastReport >= 256*1024 {
 		p.lastReport = p.read
-		pct := int(float64(p.read) / float64(p.total) * 100)
-		p.onProgress(pct)
+		p.onBytes(p.read, p.total)
 	}
 	return n, err
 }
 
-// cleanupLocal removes a local file if it exists, silently.
+func localDumpPath(dbName string) (fullPath, fileName string, err error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", "", err
+	}
+	fileName = fmt.Sprintf("%s_%s_dump.sql.gz", dbName, time.Now().Format("2006-01-02_150405"))
+	fullPath = filepath.Join(home, "Downloads", fileName)
+	return fullPath, fileName, nil
+}
+
 func cleanupLocal(path string) {
 	if path != "" {
 		os.Remove(path)
@@ -321,7 +344,7 @@ func (a *App) SyncDatabase() error {
 	a.emit("sync:progress", "Connecting to production server...")
 	client, err := dialSSH(prod)
 	if err != nil {
-		return a.fail("sync:error", "SSH connection failed: %v", err)
+		return a.fail("sync:error", "sync:progress", "SSH connection failed: %v", err)
 	}
 	defer client.Close()
 
@@ -335,26 +358,28 @@ func (a *App) SyncDatabase() error {
 		prod.DBUser, prod.DBPassword, prod.DBName, remoteFile,
 	)
 	if err := runSSHCommand(client, dumpCmd); err != nil {
-		return a.fail("sync:error", "Dump failed: %v", err)
+		return a.fail("sync:error", "sync:progress", "Dump failed: %v", err)
 	}
 
 	a.emit("sync:progress", "Downloading...")
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
-		return a.fail("sync:error", "SFTP session failed: %v", err)
+		return a.fail("sync:error", "sync:progress", "SFTP session failed: %v", err)
 	}
 	defer sftpClient.Close()
 
 	localPath, localFileName, err := localDumpPath(prod.DBName)
 	if err != nil {
-		return a.fail("sync:error", "Could not resolve local path: %v", err)
+		return a.fail("sync:error", "sync:progress", "Could not resolve local path: %v", err)
 	}
 
-	if err := downloadFile(ctx, sftpClient, remoteFile, localPath); err != nil {
+	if err := downloadFile(ctx, sftpClient, remoteFile, localPath, func(bytes, total int64) {
+		a.emit("sync:transfer", TransferProgress{Bytes: bytes, Total: total})
+	}); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
-		return a.fail("sync:error", "Download failed: %v", err)
+		return a.fail("sync:error", "sync:progress", "Download failed: %v", err)
 	}
 
 	a.emit("sync:progress", "Cleaning up remote...")
@@ -395,7 +420,7 @@ func (a *App) SyncToTest() error {
 	a.emit("test:progress", "Connecting to production server...")
 	prodClient, err := dialSSH(prod)
 	if err != nil {
-		return a.fail("test:error", "Prod SSH failed: %v", err)
+		return a.fail("test:error", "test:progress", "Prod SSH failed: %v", err)
 	}
 	defer prodClient.Close()
 
@@ -405,7 +430,7 @@ func (a *App) SyncToTest() error {
 		prod.DBUser, prod.DBPassword, prod.DBName, prodRemoteFile,
 	)
 	if err := runSSHCommand(prodClient, dumpCmd); err != nil {
-		return a.fail("test:error", "Dump failed: %v", err)
+		return a.fail("test:error", "test:progress", "Dump failed: %v", err)
 	}
 
 	if ctx.Err() != nil {
@@ -415,23 +440,24 @@ func (a *App) SyncToTest() error {
 	a.emit("test:progress", "Downloading dump locally...")
 	prodSFTP, err := sftp.NewClient(prodClient)
 	if err != nil {
-		return a.fail("test:error", "Prod SFTP session failed: %v", err)
+		return a.fail("test:error", "test:progress", "Prod SFTP session failed: %v", err)
 	}
 	defer prodSFTP.Close()
 
 	localPath, localFileName, err := localDumpPath(prod.DBName)
 	if err != nil {
-		return a.fail("test:error", "Could not resolve local path: %v", err)
+		return a.fail("test:error", "test:progress", "Could not resolve local path: %v", err)
 	}
 
-	if err := downloadFile(ctx, prodSFTP, prodRemoteFile, localPath); err != nil {
+	if err := downloadFile(ctx, prodSFTP, prodRemoteFile, localPath, func(bytes, total int64) {
+		a.emit("test:transfer", TransferProgress{Bytes: bytes, Total: total})
+	}); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
-		return a.fail("test:error", "Download failed: %v", err)
+		return a.fail("test:error", "test:progress", "Download failed: %v", err)
 	}
 	a.emit("test:progress", fmt.Sprintf("Downloaded to ~/Downloads/%s", localFileName))
-
 	runSSHCommand(prodClient, "rm "+prodRemoteFile)
 
 	if ctx.Err() != nil {
@@ -441,24 +467,24 @@ func (a *App) SyncToTest() error {
 	a.emit("test:progress", "Connecting to test server...")
 	testClient, err := dialSSH(test)
 	if err != nil {
-		return a.fail("test:error", "Test SSH failed: %v", err)
+		return a.fail("test:error", "test:progress", "Test SSH failed: %v", err)
 	}
 	defer testClient.Close()
 
 	a.emit("test:progress", "Uploading dump to test server...")
 	testSFTP, err := sftp.NewClient(testClient)
 	if err != nil {
-		return a.fail("test:error", "Test SFTP session failed: %v", err)
+		return a.fail("test:error", "test:progress", "Test SFTP session failed: %v", err)
 	}
 	defer testSFTP.Close()
 
-	if err := uploadFile(ctx, testSFTP, localPath, testRemoteFile, func(pct int) {
-		a.emit("test:progress", fmt.Sprintf("Uploading... %d%%", pct))
+	if err := uploadFile(ctx, testSFTP, localPath, testRemoteFile, func(bytes, total int64) {
+		a.emit("test:transfer", TransferProgress{Bytes: bytes, Total: total})
 	}); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
-		return a.fail("test:error", "Upload failed: %v", err)
+		return a.fail("test:error", "test:progress", "Upload failed: %v", err)
 	}
 
 	if ctx.Err() != nil {
@@ -471,11 +497,10 @@ func (a *App) SyncToTest() error {
 		testRemoteFile, test.DBUser, test.DBPassword, test.DBName,
 	)
 	if err := runSSHCommand(testClient, importCmd); err != nil {
-		return a.fail("test:error", "Import failed: %v", err)
+		return a.fail("test:error", "test:progress", "Import failed: %v", err)
 	}
 
 	runSSHCommand(testClient, "rm "+testRemoteFile)
-
 	a.emit("test:done", fmt.Sprintf("Done! '%s' imported into test server '%s'", prod.DBName, test.DBName))
 	return nil
 }
@@ -509,7 +534,7 @@ func (a *App) SyncAndImportLocal() error {
 	a.emit("pull:progress", "Connecting to production server...")
 	client, err := dialSSH(prod)
 	if err != nil {
-		return a.fail("pull:error", "SSH connection failed: %v", err)
+		return a.fail("pull:error", "pull:progress", "SSH connection failed: %v", err)
 	}
 	defer client.Close()
 
@@ -519,7 +544,7 @@ func (a *App) SyncAndImportLocal() error {
 		prod.DBUser, prod.DBPassword, prod.DBName, remoteFile,
 	)
 	if err := runSSHCommand(client, dumpCmd); err != nil {
-		return a.fail("pull:error", "Dump failed: %v", err)
+		return a.fail("pull:error", "pull:progress", "Dump failed: %v", err)
 	}
 
 	if ctx.Err() != nil {
@@ -529,23 +554,24 @@ func (a *App) SyncAndImportLocal() error {
 	a.emit("pull:progress", "Downloading dump...")
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
-		return a.fail("pull:error", "SFTP session failed: %v", err)
+		return a.fail("pull:error", "pull:progress", "SFTP session failed: %v", err)
 	}
 	defer sftpClient.Close()
 
 	localPath, localFileName, err := localDumpPath(prod.DBName)
 	if err != nil {
-		return a.fail("pull:error", "Could not resolve local path: %v", err)
+		return a.fail("pull:error", "pull:progress", "Could not resolve local path: %v", err)
 	}
 
-	if err := downloadFile(ctx, sftpClient, remoteFile, localPath); err != nil {
+	if err := downloadFile(ctx, sftpClient, remoteFile, localPath, func(bytes, total int64) {
+		a.emit("pull:transfer", TransferProgress{Bytes: bytes, Total: total})
+	}); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
-		return a.fail("pull:error", "Download failed: %v", err)
+		return a.fail("pull:error", "pull:progress", "Download failed: %v", err)
 	}
 	a.emit("pull:progress", fmt.Sprintf("Downloaded to ~/Downloads/%s", localFileName))
-
 	runSSHCommand(client, "rm "+remoteFile)
 
 	if ctx.Err() != nil {
@@ -570,7 +596,7 @@ func (a *App) SyncAndImportLocal() error {
 		if ctx.Err() != nil {
 			return nil
 		}
-		return a.fail("pull:error", "Import failed: %v — %s", err, string(out))
+		return a.fail("pull:error", "pull:progress", "Import failed: %v — %s", err, string(out))
 	}
 
 	a.emit("pull:done", fmt.Sprintf("Done! Production imported into local '%s'", local.DBName))
@@ -621,7 +647,7 @@ func (a *App) ImportLocal(filePath string) error {
 		cmd = exec.CommandContext(ctx, mysqlBin, args...)
 		f, err := os.Open(filePath)
 		if err != nil {
-			return a.fail("import:error", "Could not open file: %v", err)
+			return a.fail("import:error", "import:progress", "Could not open file: %v", err)
 		}
 		defer f.Close()
 		cmd.Stdin = f
@@ -633,19 +659,9 @@ func (a *App) ImportLocal(filePath string) error {
 			a.emit("import:cancelled", "Import cancelled.")
 			return nil
 		}
-		return a.fail("import:error", "Import failed: %v — %s", err, string(out))
+		return a.fail("import:error", "import:progress", "Import failed: %v — %s", err, string(out))
 	}
 
 	a.emit("import:done", fmt.Sprintf("Done! '%s' imported into '%s'", filepath.Base(filePath), local.DBName))
 	return nil
-}
-
-// runSSHCommandBestEffort dials a fresh connection just for cleanup — ignores all errors.
-func runSSHCommandBestEffort(s ServerConfig, cmd string) {
-	client, err := dialSSH(s)
-	if err != nil {
-		return
-	}
-	defer client.Close()
-	runSSHCommand(client, cmd)
 }

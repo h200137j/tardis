@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build-deb:
     runs-on: ubuntu-22.04
@@ -41,31 +44,26 @@ jobs:
       - name: Package .deb
         run: |
           VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"   # strip leading 'v'
+          VERSION="${VERSION#v}"
           PKG="tardis_${VERSION}_amd64"
 
           mkdir -p "${PKG}/DEBIAN"
           mkdir -p "${PKG}/usr/local/bin"
           mkdir -p "${PKG}/usr/share/applications"
-          mkdir -p "${PKG}/usr/share/icons/hicolor/256x256/apps"
 
-          # Binary
           cp build/bin/tardis "${PKG}/usr/local/bin/tardis"
           chmod 755 "${PKG}/usr/local/bin/tardis"
 
-          # Desktop entry
           cat > "${PKG}/usr/share/applications/tardis.desktop" <<EOF
           [Desktop Entry]
           Name=TARDIS
           Comment=Transfer And Retrieve Database In Seconds
           Exec=/usr/local/bin/tardis
-          Icon=tardis
           Terminal=false
           Type=Application
           Categories=Development;Utility;
           EOF
 
-          # Control file
           cat > "${PKG}/DEBIAN/control" <<EOF
           Package: tardis
           Version: ${VERSION}
@@ -81,9 +79,6 @@ jobs:
 
           dpkg-deb --build --root-owner-group "${PKG}"
 
-          # Also copy a versionless filename for stable download URLs
-          cp "${PKG}.deb" tardis_amd64.deb
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -94,15 +89,11 @@ jobs:
             ### Install
             ```bash
             sudo dpkg -i tardis_*_amd64.deb
-            sudo apt-get install -f   # fix any missing deps
+            sudo apt-get install -f
             ```
 
             ### Run
             ```bash
             tardis
             ```
-          files: |
-            tardis_*.deb
-            tardis_amd64.deb
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: tardis_*.deb

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/sftp"
@@ -29,7 +30,7 @@ type ServerConfig struct {
 
 // LocalConfig holds settings for importing into the local machine's MySQL.
 type LocalConfig struct {
-	MySQLBin string `json:"mysql_bin"` // e.g. /opt/lampp/bin/mysql
+	MySQLBin string `json:"mysql_bin"`
 	DBName   string `json:"db_name"`
 	DBUser   string `json:"db_user"`
 	DBPass   string `json:"db_pass"`
@@ -38,14 +39,18 @@ type LocalConfig struct {
 // Config is the top-level config persisted to disk.
 type Config struct {
 	Production ServerConfig `json:"production"`
-	Test        ServerConfig `json:"test"`
-	Local       LocalConfig  `json:"local"`
+	Test       ServerConfig `json:"test"`
+	Local      LocalConfig  `json:"local"`
 }
 
 // App is the main Wails application struct.
 type App struct {
 	ctx    context.Context
 	config Config
+
+	// cancellation
+	cancelMu sync.Mutex
+	cancelFn context.CancelFunc
 }
 
 func NewApp() *App { return &App{} }
@@ -60,6 +65,8 @@ func (a *App) startup(ctx context.Context) {
 		}
 	}
 }
+
+// ── Config ────────────────────────────────────────────────────────────────────
 
 func configPath() (string, error) {
 	dir, err := os.UserConfigDir()
@@ -81,9 +88,7 @@ func (a *App) loadConfig() error {
 	return json.Unmarshal(data, &a.config)
 }
 
-func (a *App) GetConfig() Config {
-	return a.config
-}
+func (a *App) GetConfig() Config { return a.config }
 
 func (a *App) SaveConfig(cfg Config) error {
 	path, err := configPath()
@@ -104,11 +109,39 @@ func (a *App) SaveConfig(cfg Config) error {
 	return nil
 }
 
+// ── Cancellation ──────────────────────────────────────────────────────────────
+
+// newOpCtx creates a fresh cancellable context for an operation.
+func (a *App) newOpCtx() context.Context {
+	a.cancelMu.Lock()
+	defer a.cancelMu.Unlock()
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.cancelFn = cancel
+	return ctx
+}
+
+// Cancel cancels the currently running operation.
+func (a *App) Cancel() {
+	a.cancelMu.Lock()
+	defer a.cancelMu.Unlock()
+	if a.cancelFn != nil {
+		a.cancelFn()
+		a.cancelFn = nil
+	}
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 func (a *App) emit(event, message string) {
 	runtime.EventsEmit(a.ctx, event, message)
 }
 
-// buildSSHClientConfig builds an ssh.ClientConfig from a ServerConfig.
+func (a *App) fail(event, format string, args ...any) error {
+	msg := fmt.Sprintf(format, args...)
+	a.emit(event, msg)
+	return fmt.Errorf("%s", msg)
+}
+
 func buildSSHClientConfig(s ServerConfig) (*ssh.ClientConfig, error) {
 	var authMethods []ssh.AuthMethod
 
@@ -148,317 +181,14 @@ func buildSSHClientConfig(s ServerConfig) (*ssh.ClientConfig, error) {
 	}, nil
 }
 
-// dialSSH connects to a server using its ServerConfig.
 func dialSSH(s ServerConfig) (*ssh.Client, error) {
 	cfg, err := buildSSHClientConfig(s)
 	if err != nil {
 		return nil, err
 	}
-	addr := fmt.Sprintf("%s:22", s.ServerIP)
-	return ssh.Dial("tcp", addr, cfg)
+	return ssh.Dial("tcp", fmt.Sprintf("%s:22", s.ServerIP), cfg)
 }
 
-// ── SyncDatabase: prod → local ~/Downloads ───────────────────────────────────
-
-func (a *App) SyncDatabase() error {
-	prod := a.config.Production
-	if prod.ServerIP == "" || prod.DBName == "" {
-		return fmt.Errorf("production config is incomplete — please check Settings")
-	}
-
-	remoteFile := fmt.Sprintf("/tmp/%s_dump.sql.gz", prod.DBName)
-
-	a.emit("sync:progress", "Connecting to production server...")
-	client, err := dialSSH(prod)
-	if err != nil {
-		return a.fail("sync:error", "SSH connection failed: %v", err)
-	}
-	defer client.Close()
-
-	a.emit("sync:progress", "Connected. Dumping database...")
-	dumpCmd := fmt.Sprintf(
-		"mysqldump -u %s -p%s %s --single-transaction | sed '/^.*999999.*sandbox/d' | gzip > %s",
-		prod.DBUser, prod.DBPassword, prod.DBName, remoteFile,
-	)
-	if err := runSSHCommand(client, dumpCmd); err != nil {
-		return a.fail("sync:error", "Dump failed: %v", err)
-	}
-
-	a.emit("sync:progress", "Dump complete. Downloading...")
-	sftpClient, err := sftp.NewClient(client)
-	if err != nil {
-		return a.fail("sync:error", "SFTP session failed: %v", err)
-	}
-	defer sftpClient.Close()
-
-	localPath, localFileName, err := localDumpPath(prod.DBName)
-	if err != nil {
-		return a.fail("sync:error", "Could not resolve local path: %v", err)
-	}
-
-	if err := downloadFile(sftpClient, remoteFile, localPath); err != nil {
-		return a.fail("sync:error", "Download failed: %v", err)
-	}
-
-	a.emit("sync:progress", fmt.Sprintf("Downloaded. Cleaning up remote..."))
-	if err := runSSHCommand(client, "rm "+remoteFile); err != nil {
-		a.emit("sync:progress", fmt.Sprintf("Warning: remote cleanup failed: %v", err))
-	}
-
-	a.emit("sync:done", fmt.Sprintf("Done! Saved to ~/Downloads/%s", localFileName))
-	return nil
-}
-
-// ── SyncToTest: prod → local → test server ───────────────────────────────────
-
-func (a *App) SyncToTest() error {
-	prod := a.config.Production
-	test := a.config.Test
-
-	if prod.ServerIP == "" || prod.DBName == "" {
-		return fmt.Errorf("production config is incomplete — please check Settings")
-	}
-	if test.ServerIP == "" || test.DBName == "" {
-		return fmt.Errorf("test server config is incomplete — please check Settings")
-	}
-
-	prodRemoteFile := fmt.Sprintf("/tmp/%s_dump.sql.gz", prod.DBName)
-	testRemoteFile := fmt.Sprintf("/tmp/%s_dump.sql.gz", prod.DBName)
-
-	// ── Step 1: Connect to prod & dump ───────────────────────────────────────
-	a.emit("test:progress", "Connecting to production server...")
-	prodClient, err := dialSSH(prod)
-	if err != nil {
-		return a.fail("test:error", "Prod SSH failed: %v", err)
-	}
-	defer prodClient.Close()
-
-	a.emit("test:progress", "Dumping production database...")
-	dumpCmd := fmt.Sprintf(
-		"mysqldump -u %s -p%s %s --single-transaction | sed '/^.*999999.*sandbox/d' | gzip > %s",
-		prod.DBUser, prod.DBPassword, prod.DBName, prodRemoteFile,
-	)
-	if err := runSSHCommand(prodClient, dumpCmd); err != nil {
-		return a.fail("test:error", "Dump failed: %v", err)
-	}
-
-	// ── Step 2: Download to local ─────────────────────────────────────────────
-	a.emit("test:progress", "Downloading dump locally...")
-	prodSFTP, err := sftp.NewClient(prodClient)
-	if err != nil {
-		return a.fail("test:error", "Prod SFTP session failed: %v", err)
-	}
-	defer prodSFTP.Close()
-
-	localPath, localFileName, err := localDumpPath(prod.DBName)
-	if err != nil {
-		return a.fail("test:error", "Could not resolve local path: %v", err)
-	}
-
-	if err := downloadFile(prodSFTP, prodRemoteFile, localPath); err != nil {
-		return a.fail("test:error", "Download failed: %v", err)
-	}
-	a.emit("test:progress", fmt.Sprintf("Downloaded to ~/Downloads/%s", localFileName))
-
-	// ── Step 3: Cleanup prod ──────────────────────────────────────────────────
-	if err := runSSHCommand(prodClient, "rm "+prodRemoteFile); err != nil {
-		a.emit("test:progress", fmt.Sprintf("Warning: prod cleanup failed: %v", err))
-	}
-
-	// ── Step 4: Upload to test server ─────────────────────────────────────────
-	a.emit("test:progress", "Connecting to test server...")
-	testClient, err := dialSSH(test)
-	if err != nil {
-		return a.fail("test:error", "Test SSH failed: %v", err)
-	}
-	defer testClient.Close()
-
-	a.emit("test:progress", "Uploading dump to test server...")
-	testSFTP, err := sftp.NewClient(testClient)
-	if err != nil {
-		return a.fail("test:error", "Test SFTP session failed: %v", err)
-	}
-	defer testSFTP.Close()
-
-	if err := uploadFile(testSFTP, localPath, testRemoteFile, func(pct int) {
-		a.emit("test:progress", fmt.Sprintf("Uploading... %d%%", pct))
-	}); err != nil {
-		return a.fail("test:error", "Upload failed: %v", err)
-	}
-
-	// ── Step 5: Import into test DB ───────────────────────────────────────────
-	a.emit("test:progress", fmt.Sprintf("Importing into test database '%s'...", test.DBName))
-	importCmd := fmt.Sprintf(
-		"gunzip < %s | mysql -u %s -p%s %s",
-		testRemoteFile, test.DBUser, test.DBPassword, test.DBName,
-	)
-	if err := runSSHCommand(testClient, importCmd); err != nil {
-		return a.fail("test:error", "Import failed: %v", err)
-	}
-
-	// ── Step 6: Cleanup test server ───────────────────────────────────────────
-	if err := runSSHCommand(testClient, "rm "+testRemoteFile); err != nil {
-		a.emit("test:progress", fmt.Sprintf("Warning: test server cleanup failed: %v", err))
-	}
-
-	a.emit("test:done", fmt.Sprintf("Done! '%s' imported into test server '%s'", prod.DBName, test.DBName))
-	return nil
-}
-
-// ── SyncAndImportLocal: prod → ~/Downloads → local MySQL ─────────────────────
-
-func (a *App) SyncAndImportLocal() error {
-	prod  := a.config.Production
-	local := a.config.Local
-
-	if prod.ServerIP == "" || prod.DBName == "" {
-		return fmt.Errorf("production config is incomplete — please check Settings")
-	}
-	if local.DBName == "" {
-		return fmt.Errorf("local database name is not configured — please check Settings")
-	}
-
-	remoteFile := fmt.Sprintf("/tmp/%s_dump.sql.gz", prod.DBName)
-
-	// ── Step 1: Connect & dump ────────────────────────────────────────────────
-	a.emit("pull:progress", "Connecting to production server...")
-	client, err := dialSSH(prod)
-	if err != nil {
-		return a.fail("pull:error", "SSH connection failed: %v", err)
-	}
-	defer client.Close()
-
-	a.emit("pull:progress", "Dumping database...")
-	dumpCmd := fmt.Sprintf(
-		"mysqldump -u %s -p%s %s --single-transaction | sed '/^.*999999.*sandbox/d' | gzip > %s",
-		prod.DBUser, prod.DBPassword, prod.DBName, remoteFile,
-	)
-	if err := runSSHCommand(client, dumpCmd); err != nil {
-		return a.fail("pull:error", "Dump failed: %v", err)
-	}
-
-	// ── Step 2: Download ──────────────────────────────────────────────────────
-	a.emit("pull:progress", "Downloading dump...")
-	sftpClient, err := sftp.NewClient(client)
-	if err != nil {
-		return a.fail("pull:error", "SFTP session failed: %v", err)
-	}
-	defer sftpClient.Close()
-
-	localPath, localFileName, err := localDumpPath(prod.DBName)
-	if err != nil {
-		return a.fail("pull:error", "Could not resolve local path: %v", err)
-	}
-	if err := downloadFile(sftpClient, remoteFile, localPath); err != nil {
-		return a.fail("pull:error", "Download failed: %v", err)
-	}
-	a.emit("pull:progress", fmt.Sprintf("Downloaded to ~/Downloads/%s", localFileName))
-
-	// ── Step 3: Remote cleanup ────────────────────────────────────────────────
-	if err := runSSHCommand(client, "rm "+remoteFile); err != nil {
-		a.emit("pull:progress", fmt.Sprintf("Warning: remote cleanup failed: %v", err))
-	}
-
-	// ── Step 4: Import into local MySQL ───────────────────────────────────────
-	a.emit("pull:progress", fmt.Sprintf("Importing into local database '%s'...", local.DBName))
-
-	mysqlBin := local.MySQLBin
-	if mysqlBin == "" {
-		mysqlBin = "mysql"
-	}
-	args := []string{"-u", local.DBUser}
-	if local.DBPass != "" {
-		args = append(args, "-p"+local.DBPass)
-	}
-	args = append(args, local.DBName)
-
-	shellCmd := fmt.Sprintf("gunzip < %q | %s %s", localPath, mysqlBin, strings.Join(args, " "))
-	cmd := exec.Command("bash", "-c", shellCmd)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return a.fail("pull:error", "Import failed: %v — %s", err, string(out))
-	}
-
-	a.emit("pull:done", fmt.Sprintf("Done! Production imported into local '%s'", local.DBName))
-	return nil
-}
-
-// ── Local Import ─────────────────────────────────────────────────────────────
-
-// PickFile opens a native file dialog and returns the selected path.
-func (a *App) PickFile() (string, error) {
-	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Select SQL dump file",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "SQL dumps (*.sql, *.sql.gz)", Pattern: "*.sql;*.sql.gz"},
-			{DisplayName: "All files",                   Pattern: "*"},
-		},
-	})
-	if err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-// ImportLocal imports a .sql or .sql.gz file into the local MySQL database.
-func (a *App) ImportLocal(filePath string) error {
-	local := a.config.Local
-
-	if filePath == "" {
-		return fmt.Errorf("no file selected")
-	}
-	if local.DBName == "" {
-		return fmt.Errorf("local database name is not configured — please check Settings")
-	}
-
-	mysqlBin := local.MySQLBin
-	if mysqlBin == "" {
-		mysqlBin = "mysql"
-	}
-
-	a.emit("import:progress", fmt.Sprintf("Importing %s into '%s'...", filepath.Base(filePath), local.DBName))
-
-	var cmd *exec.Cmd
-
-	// Build the mysql args
-	args := []string{"-u", local.DBUser}
-	if local.DBPass != "" {
-		args = append(args, "-p"+local.DBPass)
-	}
-	args = append(args, local.DBName)
-
-	if strings.HasSuffix(filePath, ".gz") {
-		// gunzip piped into mysql via shell
-		shellCmd := fmt.Sprintf("gunzip < %q | %s %s",
-			filePath, mysqlBin, strings.Join(args, " "))
-		cmd = exec.Command("bash", "-c", shellCmd)
-	} else {
-		cmd = exec.Command(mysqlBin, args...)
-		f, err := os.Open(filePath)
-		if err != nil {
-			return a.fail("import:error", "Could not open file: %v", err)
-		}
-		defer f.Close()
-		cmd.Stdin = f
-	}
-
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return a.fail("import:error", "Import failed: %v — %s", err, string(out))
-	}
-
-	a.emit("import:done", fmt.Sprintf("Done! '%s' imported into local database '%s'", filepath.Base(filePath), local.DBName))
-	return nil
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-// fail emits an error event and returns a formatted error.
-func (a *App) fail(event, format string, args ...any) error {
-	msg := fmt.Sprintf(format, args...)
-	a.emit(event, msg)
-	return fmt.Errorf(msg)
-}
-
-// localDumpPath returns a timestamped path inside ~/Downloads.
 func localDumpPath(dbName string) (fullPath, fileName string, err error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -482,7 +212,7 @@ func runSSHCommand(client *ssh.Client, cmd string) error {
 	return nil
 }
 
-func downloadFile(sftpClient *sftp.Client, remotePath, localPath string) error {
+func downloadFile(ctx context.Context, sftpClient *sftp.Client, remotePath, localPath string) error {
 	remote, err := sftpClient.Open(remotePath)
 	if err != nil {
 		return fmt.Errorf("could not open remote file: %w", err)
@@ -495,11 +225,11 @@ func downloadFile(sftpClient *sftp.Client, remotePath, localPath string) error {
 	}
 	defer local.Close()
 
-	_, err = io.Copy(local, remote)
+	_, err = io.Copy(local, &ctxReader{r: remote, ctx: ctx})
 	return err
 }
 
-func uploadFile(sftpClient *sftp.Client, localPath, remotePath string, onProgress func(pct int)) error {
+func uploadFile(ctx context.Context, sftpClient *sftp.Client, localPath, remotePath string, onProgress func(pct int)) error {
 	local, err := os.Open(localPath)
 	if err != nil {
 		return fmt.Errorf("could not open local file: %w", err)
@@ -518,11 +248,26 @@ func uploadFile(sftpClient *sftp.Client, localPath, remotePath string, onProgres
 	defer remote.Close()
 
 	_, err = io.Copy(remote, &progressReader{
-		r:          local,
+		r:          &ctxReader{r: local, ctx: ctx},
 		total:      info.Size(),
 		onProgress: onProgress,
 	})
 	return err
+}
+
+// ctxReader wraps a reader and checks context cancellation on every read.
+type ctxReader struct {
+	r   io.Reader
+	ctx context.Context
+}
+
+func (c *ctxReader) Read(p []byte) (int, error) {
+	select {
+	case <-c.ctx.Done():
+		return 0, fmt.Errorf("cancelled")
+	default:
+		return c.r.Read(p)
+	}
 }
 
 type progressReader struct {
@@ -536,11 +281,371 @@ type progressReader struct {
 func (p *progressReader) Read(buf []byte) (int, error) {
 	n, err := p.r.Read(buf)
 	p.read += int64(n)
-	// Report every 5 MB to avoid flooding
 	if p.onProgress != nil && p.read-p.lastReport >= 5*1024*1024 {
 		p.lastReport = p.read
 		pct := int(float64(p.read) / float64(p.total) * 100)
 		p.onProgress(pct)
 	}
 	return n, err
+}
+
+// cleanupLocal removes a local file if it exists, silently.
+func cleanupLocal(path string) {
+	if path != "" {
+		os.Remove(path)
+	}
+}
+
+// ── SyncDatabase: prod → ~/Downloads ─────────────────────────────────────────
+
+func (a *App) SyncDatabase() error {
+	ctx := a.newOpCtx()
+	prod := a.config.Production
+
+	if prod.ServerIP == "" || prod.DBName == "" {
+		return fmt.Errorf("production config is incomplete — please check Settings")
+	}
+
+	remoteFile := fmt.Sprintf("/tmp/%s_dump.sql.gz", prod.DBName)
+	var localPath string
+
+	defer func() {
+		if ctx.Err() != nil {
+			a.emit("sync:progress", "Cancelling — cleaning up...")
+			runSSHCommandBestEffort(prod, "rm -f "+remoteFile)
+			cleanupLocal(localPath)
+			a.emit("sync:cancelled", "Operation cancelled.")
+		}
+	}()
+
+	a.emit("sync:progress", "Connecting to production server...")
+	client, err := dialSSH(prod)
+	if err != nil {
+		return a.fail("sync:error", "SSH connection failed: %v", err)
+	}
+	defer client.Close()
+
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	a.emit("sync:progress", "Dumping database...")
+	dumpCmd := fmt.Sprintf(
+		"mysqldump -u %s -p%s %s --single-transaction | sed '/^.*999999.*sandbox/d' | gzip > %s",
+		prod.DBUser, prod.DBPassword, prod.DBName, remoteFile,
+	)
+	if err := runSSHCommand(client, dumpCmd); err != nil {
+		return a.fail("sync:error", "Dump failed: %v", err)
+	}
+
+	a.emit("sync:progress", "Downloading...")
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		return a.fail("sync:error", "SFTP session failed: %v", err)
+	}
+	defer sftpClient.Close()
+
+	localPath, localFileName, err := localDumpPath(prod.DBName)
+	if err != nil {
+		return a.fail("sync:error", "Could not resolve local path: %v", err)
+	}
+
+	if err := downloadFile(ctx, sftpClient, remoteFile, localPath); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return a.fail("sync:error", "Download failed: %v", err)
+	}
+
+	a.emit("sync:progress", "Cleaning up remote...")
+	runSSHCommand(client, "rm "+remoteFile)
+
+	a.emit("sync:done", fmt.Sprintf("Done! Saved to ~/Downloads/%s", localFileName))
+	return nil
+}
+
+// ── SyncToTest: prod → local → test server ───────────────────────────────────
+
+func (a *App) SyncToTest() error {
+	ctx := a.newOpCtx()
+	prod := a.config.Production
+	test := a.config.Test
+
+	if prod.ServerIP == "" || prod.DBName == "" {
+		return fmt.Errorf("production config is incomplete — please check Settings")
+	}
+	if test.ServerIP == "" || test.DBName == "" {
+		return fmt.Errorf("test server config is incomplete — please check Settings")
+	}
+
+	prodRemoteFile := fmt.Sprintf("/tmp/%s_dump.sql.gz", prod.DBName)
+	testRemoteFile := fmt.Sprintf("/tmp/%s_dump.sql.gz", prod.DBName)
+	var localPath string
+
+	defer func() {
+		if ctx.Err() != nil {
+			a.emit("test:progress", "Cancelling — cleaning up...")
+			runSSHCommandBestEffort(prod, "rm -f "+prodRemoteFile)
+			runSSHCommandBestEffort(test, "rm -f "+testRemoteFile)
+			cleanupLocal(localPath)
+			a.emit("test:cancelled", "Operation cancelled.")
+		}
+	}()
+
+	a.emit("test:progress", "Connecting to production server...")
+	prodClient, err := dialSSH(prod)
+	if err != nil {
+		return a.fail("test:error", "Prod SSH failed: %v", err)
+	}
+	defer prodClient.Close()
+
+	a.emit("test:progress", "Dumping production database...")
+	dumpCmd := fmt.Sprintf(
+		"mysqldump -u %s -p%s %s --single-transaction | sed '/^.*999999.*sandbox/d' | gzip > %s",
+		prod.DBUser, prod.DBPassword, prod.DBName, prodRemoteFile,
+	)
+	if err := runSSHCommand(prodClient, dumpCmd); err != nil {
+		return a.fail("test:error", "Dump failed: %v", err)
+	}
+
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	a.emit("test:progress", "Downloading dump locally...")
+	prodSFTP, err := sftp.NewClient(prodClient)
+	if err != nil {
+		return a.fail("test:error", "Prod SFTP session failed: %v", err)
+	}
+	defer prodSFTP.Close()
+
+	localPath, localFileName, err := localDumpPath(prod.DBName)
+	if err != nil {
+		return a.fail("test:error", "Could not resolve local path: %v", err)
+	}
+
+	if err := downloadFile(ctx, prodSFTP, prodRemoteFile, localPath); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return a.fail("test:error", "Download failed: %v", err)
+	}
+	a.emit("test:progress", fmt.Sprintf("Downloaded to ~/Downloads/%s", localFileName))
+
+	runSSHCommand(prodClient, "rm "+prodRemoteFile)
+
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	a.emit("test:progress", "Connecting to test server...")
+	testClient, err := dialSSH(test)
+	if err != nil {
+		return a.fail("test:error", "Test SSH failed: %v", err)
+	}
+	defer testClient.Close()
+
+	a.emit("test:progress", "Uploading dump to test server...")
+	testSFTP, err := sftp.NewClient(testClient)
+	if err != nil {
+		return a.fail("test:error", "Test SFTP session failed: %v", err)
+	}
+	defer testSFTP.Close()
+
+	if err := uploadFile(ctx, testSFTP, localPath, testRemoteFile, func(pct int) {
+		a.emit("test:progress", fmt.Sprintf("Uploading... %d%%", pct))
+	}); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return a.fail("test:error", "Upload failed: %v", err)
+	}
+
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	a.emit("test:progress", fmt.Sprintf("Importing into '%s'...", test.DBName))
+	importCmd := fmt.Sprintf(
+		"gunzip < %s | mysql -u %s -p%s %s",
+		testRemoteFile, test.DBUser, test.DBPassword, test.DBName,
+	)
+	if err := runSSHCommand(testClient, importCmd); err != nil {
+		return a.fail("test:error", "Import failed: %v", err)
+	}
+
+	runSSHCommand(testClient, "rm "+testRemoteFile)
+
+	a.emit("test:done", fmt.Sprintf("Done! '%s' imported into test server '%s'", prod.DBName, test.DBName))
+	return nil
+}
+
+// ── SyncAndImportLocal: prod → ~/Downloads → local MySQL ─────────────────────
+
+func (a *App) SyncAndImportLocal() error {
+	ctx := a.newOpCtx()
+	prod := a.config.Production
+	local := a.config.Local
+
+	if prod.ServerIP == "" || prod.DBName == "" {
+		return fmt.Errorf("production config is incomplete — please check Settings")
+	}
+	if local.DBName == "" {
+		return fmt.Errorf("local database name is not configured — please check Settings")
+	}
+
+	remoteFile := fmt.Sprintf("/tmp/%s_dump.sql.gz", prod.DBName)
+	var localPath string
+
+	defer func() {
+		if ctx.Err() != nil {
+			a.emit("pull:progress", "Cancelling — cleaning up...")
+			runSSHCommandBestEffort(prod, "rm -f "+remoteFile)
+			cleanupLocal(localPath)
+			a.emit("pull:cancelled", "Operation cancelled.")
+		}
+	}()
+
+	a.emit("pull:progress", "Connecting to production server...")
+	client, err := dialSSH(prod)
+	if err != nil {
+		return a.fail("pull:error", "SSH connection failed: %v", err)
+	}
+	defer client.Close()
+
+	a.emit("pull:progress", "Dumping database...")
+	dumpCmd := fmt.Sprintf(
+		"mysqldump -u %s -p%s %s --single-transaction | sed '/^.*999999.*sandbox/d' | gzip > %s",
+		prod.DBUser, prod.DBPassword, prod.DBName, remoteFile,
+	)
+	if err := runSSHCommand(client, dumpCmd); err != nil {
+		return a.fail("pull:error", "Dump failed: %v", err)
+	}
+
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	a.emit("pull:progress", "Downloading dump...")
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		return a.fail("pull:error", "SFTP session failed: %v", err)
+	}
+	defer sftpClient.Close()
+
+	localPath, localFileName, err := localDumpPath(prod.DBName)
+	if err != nil {
+		return a.fail("pull:error", "Could not resolve local path: %v", err)
+	}
+
+	if err := downloadFile(ctx, sftpClient, remoteFile, localPath); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return a.fail("pull:error", "Download failed: %v", err)
+	}
+	a.emit("pull:progress", fmt.Sprintf("Downloaded to ~/Downloads/%s", localFileName))
+
+	runSSHCommand(client, "rm "+remoteFile)
+
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	a.emit("pull:progress", fmt.Sprintf("Importing into local database '%s'...", local.DBName))
+
+	mysqlBin := local.MySQLBin
+	if mysqlBin == "" {
+		mysqlBin = "mysql"
+	}
+	args := []string{"-u", local.DBUser}
+	if local.DBPass != "" {
+		args = append(args, "-p"+local.DBPass)
+	}
+	args = append(args, local.DBName)
+
+	cmd := exec.CommandContext(ctx, "bash", "-c",
+		fmt.Sprintf("gunzip < %q | %s %s", localPath, mysqlBin, strings.Join(args, " ")))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return a.fail("pull:error", "Import failed: %v — %s", err, string(out))
+	}
+
+	a.emit("pull:done", fmt.Sprintf("Done! Production imported into local '%s'", local.DBName))
+	return nil
+}
+
+// ── Local Import ──────────────────────────────────────────────────────────────
+
+func (a *App) PickFile() (string, error) {
+	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select SQL dump file",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "SQL dumps (*.sql, *.sql.gz)", Pattern: "*.sql;*.sql.gz"},
+			{DisplayName: "All files", Pattern: "*"},
+		},
+	})
+}
+
+func (a *App) ImportLocal(filePath string) error {
+	ctx := a.newOpCtx()
+	local := a.config.Local
+
+	if filePath == "" {
+		return fmt.Errorf("no file selected")
+	}
+	if local.DBName == "" {
+		return fmt.Errorf("local database name is not configured — please check Settings")
+	}
+
+	mysqlBin := local.MySQLBin
+	if mysqlBin == "" {
+		mysqlBin = "mysql"
+	}
+
+	a.emit("import:progress", fmt.Sprintf("Importing %s into '%s'...", filepath.Base(filePath), local.DBName))
+
+	args := []string{"-u", local.DBUser}
+	if local.DBPass != "" {
+		args = append(args, "-p"+local.DBPass)
+	}
+	args = append(args, local.DBName)
+
+	var cmd *exec.Cmd
+	if strings.HasSuffix(filePath, ".gz") {
+		cmd = exec.CommandContext(ctx, "bash", "-c",
+			fmt.Sprintf("gunzip < %q | %s %s", filePath, mysqlBin, strings.Join(args, " ")))
+	} else {
+		cmd = exec.CommandContext(ctx, mysqlBin, args...)
+		f, err := os.Open(filePath)
+		if err != nil {
+			return a.fail("import:error", "Could not open file: %v", err)
+		}
+		defer f.Close()
+		cmd.Stdin = f
+	}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() != nil {
+			a.emit("import:cancelled", "Import cancelled.")
+			return nil
+		}
+		return a.fail("import:error", "Import failed: %v — %s", err, string(out))
+	}
+
+	a.emit("import:done", fmt.Sprintf("Done! '%s' imported into '%s'", filepath.Base(filePath), local.DBName))
+	return nil
+}
+
+// runSSHCommandBestEffort dials a fresh connection just for cleanup — ignores all errors.
+func runSSHCommandBestEffort(s ServerConfig, cmd string) {
+	client, err := dialSSH(s)
+	if err != nil {
+		return
+	}
+	defer client.Close()
+	runSSHCommand(client, cmd)
 }

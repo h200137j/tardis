@@ -199,3 +199,22 @@
   color: var(--success);
   font-size: 12px;
 }
+
+/* ── Cancel button ── */
+.cancel-btn {
+  margin-top: 4px;
+  background: transparent;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: var(--radius);
+  padding: 7px 22px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.cancel-btn:hover {
+  background: var(--danger);
+  color: #fff;
+}

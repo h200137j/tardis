@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#0d0d18"/>
+    </linearGradient>
+    <linearGradient id="dbTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5a9fff"/>
+      <stop offset="100%" stop-color="#3a7fe0"/>
+    </linearGradient>
+    <linearGradient id="dbBody" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#2a5fc0"/>
+      <stop offset="100%" stop-color="#1e4aa0"/>
+    </linearGradient>
+    <linearGradient id="arrow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7ab8ff"/>
+      <stop offset="100%" stop-color="#4f8ef7"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softglow">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <rect width="256" height="256" rx="52" fill="url(#bg)"/>
+
+  <!-- Glow behind db -->
+  <ellipse cx="128" cy="128" rx="72" ry="72" fill="#3a7fe0" opacity="0.08"/>
+
+  <!-- Database cylinder body -->
+  <rect x="72" y="98" width="112" height="72" rx="4" fill="url(#dbBody)"/>
+
+  <!-- Database top ellipse -->
+  <ellipse cx="128" cy="98" rx="56" ry="18" fill="url(#dbTop)"/>
+
+  <!-- Database shine on top -->
+  <ellipse cx="116" cy="93" rx="28" ry="7" fill="white" opacity="0.12"/>
+
+  <!-- Middle stripe -->
+  <rect x="72" y="128" width="112" height="3" fill="#4f8ef7" opacity="0.4"/>
+
+  <!-- Bottom ellipse -->
+  <ellipse cx="128" cy="170" rx="56" ry="18" fill="#1e4aa0"/>
+  <ellipse cx="128" cy="170" rx="56" ry="18" fill="#2a5fc0" opacity="0.6"/>
+
+  <!-- Arrow shaft -->
+  <rect x="118" y="175" width="20" height="36" rx="4" fill="url(#arrow)" filter="url(#glow)"/>
+
+  <!-- Arrow head -->
+  <polygon points="128,228 104,200 152,200" fill="url(#arrow)" filter="url(#glow)"/>
+
+  <!-- Small dots on db body for detail -->
+  <circle cx="96" cy="134" r="3" fill="#7ab8ff" opacity="0.5"/>
+  <circle cx="108" cy="134" r="3" fill="#7ab8ff" opacity="0.5"/>
+  <circle cx="120" cy="134" r="3" fill="#7ab8ff" opacity="0.5"/>
+</svg>

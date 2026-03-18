@@ -50,15 +50,19 @@ jobs:
           mkdir -p "${PKG}/DEBIAN"
           mkdir -p "${PKG}/usr/local/bin"
           mkdir -p "${PKG}/usr/share/applications"
+          mkdir -p "${PKG}/usr/share/icons/hicolor/256x256/apps"
 
           cp build/bin/tardis "${PKG}/usr/local/bin/tardis"
           chmod 755 "${PKG}/usr/local/bin/tardis"
+
+          cp build/appicon.png "${PKG}/usr/share/icons/hicolor/256x256/apps/tardis.png"
 
           cat > "${PKG}/usr/share/applications/tardis.desktop" <<EOF
           [Desktop Entry]
           Name=TARDIS
           Comment=Transfer And Retrieve Database In Seconds
           Exec=/usr/local/bin/tardis
+          Icon=tardis
           Terminal=false
           Type=Application
           Categories=Development;Utility;

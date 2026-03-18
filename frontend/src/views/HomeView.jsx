@@ -132,7 +132,7 @@ export default function HomeView() {
     doneEvent:      'import:done',
     errorEvent:     'import:error',
     cancelledEvent: 'import:cancelled',
-    transferEvent:  null,
+    transferEvent:  'import:transfer',
     fn:             () => {},
   })
 
@@ -206,6 +206,9 @@ function ProgressPanel({ sync, onClear }) {
     ? Math.min(100, Math.round((transfer.bytes / transfer.total) * 100))
     : null
 
+  // Distinguish table progress (small numbers) from byte transfer (large numbers)
+  const isTableProgress = transfer && transfer.total > 0 && transfer.total < 100000
+
   const lastLog = logs[logs.length - 1]
 
   return (
@@ -228,15 +231,19 @@ function ProgressPanel({ sync, onClear }) {
         </div>
       </div>
 
-      {/* Transfer bar */}
+      {/* Transfer / import progress bar */}
       {transfer && transfer.total > 0 && (
         <div className="transfer-section">
           <div className="transfer-info">
             <span className="transfer-label">
-              {pct < 100 ? 'Transferring' : 'Transfer complete'}
+              {isTableProgress
+                ? (pct < 100 ? 'Importing tables' : 'Import complete')
+                : (pct < 100 ? 'Transferring' : 'Transfer complete')}
             </span>
             <span className="transfer-bytes">
-              {fmtMB(transfer.bytes)} MB / {fmtMB(transfer.total)} MB
+              {isTableProgress
+                ? `${transfer.bytes} / ${transfer.total} tables`
+                : `${fmtMB(transfer.bytes)} MB / ${fmtMB(transfer.total)} MB`}
               <span className="transfer-pct"> — {pct}%</span>
             </span>
           </div>

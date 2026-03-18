@@ -15,6 +15,12 @@ const EMPTY_SERVER = {
 const DEFAULT = {
   production: { ...EMPTY_SERVER },
   test:       { ...EMPTY_SERVER },
+  local: {
+    mysql_bin: '/opt/lampp/bin/mysql',
+    db_name:   '',
+    db_user:   'root',
+    db_pass:   '',
+  },
 }
 
 export default function SettingsView() {
@@ -28,6 +34,7 @@ export default function SettingsView() {
       .then(cfg => setForm({
         production: { ...EMPTY_SERVER, ...cfg.production },
         test:       { ...EMPTY_SERVER, ...cfg.test },
+        local:      { ...DEFAULT.local, ...cfg.local },
       }))
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -35,7 +42,6 @@ export default function SettingsView() {
 
   const set = (server, key, val) =>
     setForm(f => ({ ...f, [server]: { ...f[server], [key]: val } }))
-
   const handleSave = async e => {
     e.preventDefault()
     setError('')
@@ -44,6 +50,7 @@ export default function SettingsView() {
       await SaveConfig({
         production: { ...form.production },
         test:       { ...form.test },
+        local:      { ...form.local },
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
@@ -57,9 +64,7 @@ export default function SettingsView() {
   return (
     <div className="settings">
       <h2 className="settings-title">Settings</h2>
-      <p className="settings-desc">
-        Credentials are stored at <code>~/.config/dbsync/config.json</code> with restricted permissions.
-      </p>
+
 
       <form className="settings-form" onSubmit={handleSave} noValidate>
 
@@ -74,6 +79,38 @@ export default function SettingsView() {
           values={form.test}
           onChange={(k, v) => set('test', k, v)}
         />
+
+        <fieldset className="fieldset">
+          <legend>💻 Local Import</legend>
+          <div className="fieldset-columns">
+            <div className="fieldset-col">
+              <p className="col-label">MySQL</p>
+              <Field label="MySQL Binary Path" hint="e.g. /opt/lampp/bin/mysql or just 'mysql'">
+                <input type="text" value={form.local.mysql_bin}
+                  onChange={e => set('local', 'mysql_bin', e.target.value)}
+                  placeholder="/opt/lampp/bin/mysql" />
+              </Field>
+              <Field label="Database User">
+                <input type="text" value={form.local.db_user}
+                  onChange={e => set('local', 'db_user', e.target.value)}
+                  placeholder="root" />
+              </Field>
+              <Field label="Database Password" hint="Leave blank if no password">
+                <input type="password" value={form.local.db_pass}
+                  onChange={e => set('local', 'db_pass', e.target.value)}
+                  autoComplete="current-password" />
+              </Field>
+            </div>
+            <div className="fieldset-col">
+              <p className="col-label">Database</p>
+              <Field label="Local Database Name" required>
+                <input type="text" value={form.local.db_name}
+                  onChange={e => set('local', 'db_name', e.target.value)}
+                  placeholder="my_local_db" />
+              </Field>
+            </div>
+          </div>
+        </fieldset>
 
         {error && <p className="form-error" role="alert">{error}</p>}
 

@@ -4,7 +4,13 @@ import {main} from '../models';
 
 export function GetConfig():Promise<main.Config>;
 
+export function ImportLocal(arg1:string):Promise<void>;
+
+export function PickFile():Promise<string>;
+
 export function SaveConfig(arg1:main.Config):Promise<void>;
+
+export function SyncAndImportLocal():Promise<void>;
 
 export function SyncDatabase():Promise<void>;
 

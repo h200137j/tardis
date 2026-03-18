@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
-import { SyncDatabase, SyncToTest } from '../../wailsjs/go/main/App'
+import { SyncDatabase, SyncToTest, SyncAndImportLocal, PickFile, ImportLocal } from '../../wailsjs/go/main/App'
 import './HomeView.css'
 
 const STATUS = { IDLE: 'idle', RUNNING: 'running', DONE: 'done', ERROR: 'error' }
@@ -26,11 +26,12 @@ function useSync({ progressEvent, doneEvent, errorEvent, fn }) {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [logs])
 
-  const run = async () => {
+  const run = async (overrideFn) => {
     setStatus(STATUS.RUNNING)
     setLogs([])
     addLog('Starting...', 'info')
-    try { await fn() }
+    const callable = typeof overrideFn === 'function' ? overrideFn : fn
+    try { await callable() }
     catch (err) { addLog(String(err), 'error'); setStatus(STATUS.ERROR) }
   }
 
@@ -54,12 +55,48 @@ export default function HomeView() {
     fn:            SyncToTest,
   })
 
-  const anyBusy = prod.status === STATUS.RUNNING || test.status === STATUS.RUNNING
+  const importSync = useSync({
+    progressEvent: 'import:progress',
+    doneEvent:     'import:done',
+    errorEvent:    'import:error',
+    fn:            () => {}, // overridden below
+  })
 
-  // Show whichever log has entries; test takes priority if both somehow have logs
-  const activeLogs    = test.logs.length > 0 ? test.logs    : prod.logs
-  const activeLogEnd  = test.logs.length > 0 ? test.logEndRef : prod.logEndRef
-  const activeClear   = test.logs.length > 0 ? test.clear   : prod.clear
+  const [selectedFile, setSelectedFile] = useState('')
+
+  const handlePickAndImport = async () => {
+    try {
+      const path = await PickFile()
+      if (!path) return
+      setSelectedFile(path)
+      importSync.run(() => ImportLocal(path))
+    } catch (err) {
+      importSync.run(() => Promise.reject(err))
+    }
+  }
+
+  const pull = useSync({
+    progressEvent: 'pull:progress',
+    doneEvent:     'pull:done',
+    errorEvent:    'pull:error',
+    fn:            SyncAndImportLocal,
+  })
+
+  const anyBusy = prod.status === STATUS.RUNNING || test.status === STATUS.RUNNING || importSync.status === STATUS.RUNNING || pull.status === STATUS.RUNNING
+
+  // Show whichever log has entries; priority: import > pull > test > prod
+  const activeLogs    = importSync.logs.length > 0 ? importSync.logs
+                      : pull.logs.length > 0        ? pull.logs
+                      : test.logs.length > 0        ? test.logs
+                      : prod.logs
+  const activeLogEnd  = importSync.logs.length > 0 ? importSync.logEndRef
+                      : pull.logs.length > 0        ? pull.logEndRef
+                      : test.logs.length > 0        ? test.logEndRef
+                      : prod.logEndRef
+  const activeClear   = importSync.logs.length > 0 ? importSync.clear
+                      : pull.logs.length > 0        ? pull.clear
+                      : test.logs.length > 0        ? test.clear
+                      : prod.clear
 
   return (
     <div className="home">
@@ -67,7 +104,7 @@ export default function HomeView() {
         <div className="hero-icon">🗄️</div>
         <h1 className="hero-title">Database Sync</h1>
         <p className="hero-desc">
-          Pull production to <code>~/Downloads</code>, or push it straight into your test server.
+          Pull production to <code>~/Downloads</code>, push it to your test server, or pull and import straight into your local database.
         </p>
 
         <div className="btn-row">
@@ -87,7 +124,36 @@ export default function HomeView() {
             onClick={test.run}
             variant="purple"
           />
+          <SyncButton
+            label="⬇ Pull & Import Local"
+            busyLabel="Working..."
+            status={pull.status}
+            disabled={anyBusy}
+            onClick={pull.run}
+            variant="teal"
+          />
         </div>
+      </div>
+
+      {/* ── Local import ── */}
+      <div className="import-card">
+        <div className="import-card-left">
+          <span className="import-icon">💻</span>
+          <div>
+            <p className="import-title">Import to Local</p>
+            <p className="import-desc">Select a <code>.sql</code> or <code>.sql.gz</code> file to import into your local database.</p>
+          </div>
+        </div>
+        <button
+          className={`sync-btn sync-btn--green ${importSync.status === STATUS.RUNNING ? 'busy' : ''} ${importSync.status === STATUS.ERROR ? 'errored' : ''}`}
+          onClick={handlePickAndImport}
+          disabled={anyBusy}
+        >
+          {importSync.status === STATUS.RUNNING ? <><span className="spinner" aria-hidden="true" />Importing...</>
+           : importSync.status === STATUS.DONE  ? '✓ Import Another'
+           : importSync.status === STATUS.ERROR ? '↺ Retry'
+           : '📂 Select & Import'}
+        </button>
       </div>
 
       {activeLogs.length > 0 && (

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pkg/sftp"
@@ -25,10 +27,19 @@ type ServerConfig struct {
 	DBPassword  string `json:"db_password"`
 }
 
+// LocalConfig holds settings for importing into the local machine's MySQL.
+type LocalConfig struct {
+	MySQLBin string `json:"mysql_bin"` // e.g. /opt/lampp/bin/mysql
+	DBName   string `json:"db_name"`
+	DBUser   string `json:"db_user"`
+	DBPass   string `json:"db_pass"`
+}
+
 // Config is the top-level config persisted to disk.
 type Config struct {
 	Production ServerConfig `json:"production"`
-	Test       ServerConfig `json:"test"`
+	Test        ServerConfig `json:"test"`
+	Local       LocalConfig  `json:"local"`
 }
 
 // App is the main Wails application struct.
@@ -45,6 +56,7 @@ func (a *App) startup(ctx context.Context) {
 		a.config = Config{
 			Production: ServerConfig{},
 			Test:       ServerConfig{},
+			Local:      LocalConfig{MySQLBin: "/opt/lampp/bin/mysql", DBUser: "root"},
 		}
 	}
 }
@@ -291,8 +303,152 @@ func (a *App) SyncToTest() error {
 	return nil
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── SyncAndImportLocal: prod → ~/Downloads → local MySQL ─────────────────────
 
+func (a *App) SyncAndImportLocal() error {
+	prod  := a.config.Production
+	local := a.config.Local
+
+	if prod.ServerIP == "" || prod.DBName == "" {
+		return fmt.Errorf("production config is incomplete — please check Settings")
+	}
+	if local.DBName == "" {
+		return fmt.Errorf("local database name is not configured — please check Settings")
+	}
+
+	remoteFile := fmt.Sprintf("/tmp/%s_dump.sql.gz", prod.DBName)
+
+	// ── Step 1: Connect & dump ────────────────────────────────────────────────
+	a.emit("pull:progress", "Connecting to production server...")
+	client, err := dialSSH(prod)
+	if err != nil {
+		return a.fail("pull:error", "SSH connection failed: %v", err)
+	}
+	defer client.Close()
+
+	a.emit("pull:progress", "Dumping database...")
+	dumpCmd := fmt.Sprintf(
+		"mysqldump -u %s -p%s %s --single-transaction | sed '/^.*999999.*sandbox/d' | gzip > %s",
+		prod.DBUser, prod.DBPassword, prod.DBName, remoteFile,
+	)
+	if err := runSSHCommand(client, dumpCmd); err != nil {
+		return a.fail("pull:error", "Dump failed: %v", err)
+	}
+
+	// ── Step 2: Download ──────────────────────────────────────────────────────
+	a.emit("pull:progress", "Downloading dump...")
+	sftpClient, err := sftp.NewClient(client)
+	if err != nil {
+		return a.fail("pull:error", "SFTP session failed: %v", err)
+	}
+	defer sftpClient.Close()
+
+	localPath, localFileName, err := localDumpPath(prod.DBName)
+	if err != nil {
+		return a.fail("pull:error", "Could not resolve local path: %v", err)
+	}
+	if err := downloadFile(sftpClient, remoteFile, localPath); err != nil {
+		return a.fail("pull:error", "Download failed: %v", err)
+	}
+	a.emit("pull:progress", fmt.Sprintf("Downloaded to ~/Downloads/%s", localFileName))
+
+	// ── Step 3: Remote cleanup ────────────────────────────────────────────────
+	if err := runSSHCommand(client, "rm "+remoteFile); err != nil {
+		a.emit("pull:progress", fmt.Sprintf("Warning: remote cleanup failed: %v", err))
+	}
+
+	// ── Step 4: Import into local MySQL ───────────────────────────────────────
+	a.emit("pull:progress", fmt.Sprintf("Importing into local database '%s'...", local.DBName))
+
+	mysqlBin := local.MySQLBin
+	if mysqlBin == "" {
+		mysqlBin = "mysql"
+	}
+	args := []string{"-u", local.DBUser}
+	if local.DBPass != "" {
+		args = append(args, "-p"+local.DBPass)
+	}
+	args = append(args, local.DBName)
+
+	shellCmd := fmt.Sprintf("gunzip < %q | %s %s", localPath, mysqlBin, strings.Join(args, " "))
+	cmd := exec.Command("bash", "-c", shellCmd)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return a.fail("pull:error", "Import failed: %v — %s", err, string(out))
+	}
+
+	a.emit("pull:done", fmt.Sprintf("Done! Production imported into local '%s'", local.DBName))
+	return nil
+}
+
+// ── Local Import ─────────────────────────────────────────────────────────────
+
+// PickFile opens a native file dialog and returns the selected path.
+func (a *App) PickFile() (string, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select SQL dump file",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "SQL dumps (*.sql, *.sql.gz)", Pattern: "*.sql;*.sql.gz"},
+			{DisplayName: "All files",                   Pattern: "*"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// ImportLocal imports a .sql or .sql.gz file into the local MySQL database.
+func (a *App) ImportLocal(filePath string) error {
+	local := a.config.Local
+
+	if filePath == "" {
+		return fmt.Errorf("no file selected")
+	}
+	if local.DBName == "" {
+		return fmt.Errorf("local database name is not configured — please check Settings")
+	}
+
+	mysqlBin := local.MySQLBin
+	if mysqlBin == "" {
+		mysqlBin = "mysql"
+	}
+
+	a.emit("import:progress", fmt.Sprintf("Importing %s into '%s'...", filepath.Base(filePath), local.DBName))
+
+	var cmd *exec.Cmd
+
+	// Build the mysql args
+	args := []string{"-u", local.DBUser}
+	if local.DBPass != "" {
+		args = append(args, "-p"+local.DBPass)
+	}
+	args = append(args, local.DBName)
+
+	if strings.HasSuffix(filePath, ".gz") {
+		// gunzip piped into mysql via shell
+		shellCmd := fmt.Sprintf("gunzip < %q | %s %s",
+			filePath, mysqlBin, strings.Join(args, " "))
+		cmd = exec.Command("bash", "-c", shellCmd)
+	} else {
+		cmd = exec.Command(mysqlBin, args...)
+		f, err := os.Open(filePath)
+		if err != nil {
+			return a.fail("import:error", "Could not open file: %v", err)
+		}
+		defer f.Close()
+		cmd.Stdin = f
+	}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return a.fail("import:error", "Import failed: %v — %s", err, string(out))
+	}
+
+	a.emit("import:done", fmt.Sprintf("Done! '%s' imported into local database '%s'", filepath.Base(filePath), local.DBName))
+	return nil
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 // fail emits an error event and returns a formatted error.
 func (a *App) fail(event, format string, args ...any) error {
 	msg := fmt.Sprintf(format, args...)

@@ -1,5 +1,23 @@
 export namespace main {
 	
+	export class LocalConfig {
+	    mysql_bin: string;
+	    db_name: string;
+	    db_user: string;
+	    db_pass: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LocalConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mysql_bin = source["mysql_bin"];
+	        this.db_name = source["db_name"];
+	        this.db_user = source["db_user"];
+	        this.db_pass = source["db_pass"];
+	    }
+	}
 	export class ServerConfig {
 	    server_ip: string;
 	    ssh_user: string;
@@ -27,6 +45,7 @@ export namespace main {
 	export class Config {
 	    production: ServerConfig;
 	    test: ServerConfig;
+	    local: LocalConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -36,6 +55,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.production = this.convertValues(source["production"], ServerConfig);
 	        this.test = this.convertValues(source["test"], ServerConfig);
+	        this.local = this.convertValues(source["local"], LocalConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -56,6 +76,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 
 }
 

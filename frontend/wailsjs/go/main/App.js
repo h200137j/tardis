@@ -6,8 +6,20 @@ export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
 
+export function ImportLocal(arg1) {
+  return window['go']['main']['App']['ImportLocal'](arg1);
+}
+
+export function PickFile() {
+  return window['go']['main']['App']['PickFile']();
+}
+
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
+}
+
+export function SyncAndImportLocal() {
+  return window['go']['main']['App']['SyncAndImportLocal']();
 }
 
 export function SyncDatabase() {

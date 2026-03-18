@@ -1,6 +1,9 @@
 # ⏱ TARDIS
 ### Transfer And Retrieve Database In Seconds
 
+![Latest Release](https://img.shields.io/github/v/release/h200137j/tardis?label=latest&style=flat-square)
+![License](https://img.shields.io/github/license/h200137j/tardis?style=flat-square)
+
 A desktop app for Ubuntu Linux that automates pulling a production MySQL database to your local machine — or pushing it straight into a test server — in a single click.
 
 Built with [Wails v2](https://wails.io), Go, and React.
@@ -40,11 +43,22 @@ go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
 ---
 
-## Getting Started
+## Install
+
+👉 **[Download latest release](https://github.com/h200137j/tardis/releases/latest)**
+
+```bash
+sudo dpkg -i tardis_*.deb
+sudo apt-get install -f
+```
+
+---
+
+## Build from Source
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourname/tardis.git
+git clone https://github.com/h200137j/tardis.git
 cd tardis
 
 # Install frontend deps

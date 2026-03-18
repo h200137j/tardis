@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            pkg-config \
+            dpkg-dev
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+
+      - name: Build binary
+        run: ~/go/bin/wails build -tags webkit2_41 -ldflags "-X main.version=${{ github.ref_name }}"
+
+      - name: Package .deb
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"   # strip leading 'v'
+          PKG="tardis_${VERSION}_amd64"
+
+          mkdir -p "${PKG}/DEBIAN"
+          mkdir -p "${PKG}/usr/local/bin"
+          mkdir -p "${PKG}/usr/share/applications"
+          mkdir -p "${PKG}/usr/share/icons/hicolor/256x256/apps"
+
+          # Binary
+          cp build/bin/tardis "${PKG}/usr/local/bin/tardis"
+          chmod 755 "${PKG}/usr/local/bin/tardis"
+
+          # Desktop entry
+          cat > "${PKG}/usr/share/applications/tardis.desktop" <<EOF
+          [Desktop Entry]
+          Name=TARDIS
+          Comment=Transfer And Retrieve Database In Seconds
+          Exec=/usr/local/bin/tardis
+          Icon=tardis
+          Terminal=false
+          Type=Application
+          Categories=Development;Utility;
+          EOF
+
+          # Control file
+          cat > "${PKG}/DEBIAN/control" <<EOF
+          Package: tardis
+          Version: ${VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Depends: libwebkit2gtk-4.1-0
+          Maintainer: TARDIS <noreply@github.com>
+          Description: Transfer And Retrieve Database In Seconds
+           A desktop app to pull a production MySQL database to your local
+           machine or push it to a test server in a single click.
+          EOF
+
+          dpkg-deb --build --root-owner-group "${PKG}"
+
+          # Also copy a versionless filename for stable download URLs
+          cp "${PKG}.deb" tardis_amd64.deb
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "TARDIS ${{ github.ref_name }}"
+          body: |
+            ## TARDIS ${{ github.ref_name }}
+
+            ### Install
+            ```bash
+            sudo dpkg -i tardis_*_amd64.deb
+            sudo apt-get install -f   # fix any missing deps
+            ```
+
+            ### Run
+            ```bash
+            tardis
+            ```
+          files: |
+            tardis_*.deb
+            tardis_amd64.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

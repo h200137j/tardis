@@ -1,0 +1,21 @@
+# Build output
+build/bin/
+tardis
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Go
+*.exe
+*.test
+*.out
+
+# Config (contains credentials)
+~/.config/dbsync/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.deb

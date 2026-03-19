@@ -147,7 +147,9 @@ export default function HomeView() {
   }
 
   const anyBusy = [prod, test, pull, importSync].some(s => s.status === STATUS.RUNNING)
-  const active  = [importSync, pull, test, prod].find(s => s.logs.length > 0) ?? prod
+  const active  = [importSync, pull, test, prod].find(s => s.status === STATUS.RUNNING)
+    ?? [importSync, pull, test, prod].find(s => s.logs.length > 0)
+    ?? prod
 
   return (
     <div className="home">

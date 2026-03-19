@@ -604,7 +604,7 @@ func (a *App) SyncToTest() error {
 	defer testClient.Close()
 
 	a.emit("test:progress", "Uploading dump to test server...")
-	testSFTP, err := sftp.NewClient(testClient)
+	testSFTP, err := sftp.NewClient(testClient, sftp.MaxConcurrentRequestsPerFile(200))
 	if err != nil {
 		return a.fail("test:error", "test:progress", "Test SFTP session failed: %v", err)
 	}

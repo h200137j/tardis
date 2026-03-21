@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -73,7 +74,69 @@ func (a *App) startup(ctx context.Context) {
 	}
 }
 
-// ── Config ────────────────────────────────────────────────────────────────────
+// ── Version & Updates ─────────────────────────────────────────────────────────
+
+func (a *App) GetVersion() string { return version }
+
+// UpdateInfo is returned by CheckForUpdate.
+type UpdateInfo struct {
+	HasUpdate  bool   `json:"has_update"`
+	Latest     string `json:"latest"`
+	Current    string `json:"current"`
+	DownloadURL string `json:"download_url"`
+}
+
+func (a *App) CheckForUpdate() UpdateInfo {
+	current := version
+	info := UpdateInfo{Current: current}
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	req, err := http.NewRequest("GET", "https://api.github.com/repos/h200137j/tardis/releases/latest", nil)
+	if err != nil {
+		return info
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		return info
+	}
+	defer resp.Body.Close()
+
+	var release struct {
+		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return info
+	}
+
+	info.Latest = release.TagName
+	// find .deb asset
+	for _, a := range release.Assets {
+		if strings.HasSuffix(a.Name, ".deb") {
+			info.DownloadURL = a.BrowserDownloadURL
+			break
+		}
+	}
+	if info.DownloadURL == "" {
+		// fallback to release page
+		info.DownloadURL = "https://github.com/h200137j/tardis/releases/latest"
+	}
+
+	// compare: strip leading 'v' for comparison
+	latest  := strings.TrimPrefix(release.TagName, "v")
+	cur     := strings.TrimPrefix(current, "v")
+	info.HasUpdate = latest != "" && cur != "dev" && latest != cur
+	return info
+}
+
+// OpenURL opens a URL in the default browser.
+func (a *App) OpenURL(url string) {
+	exec.Command("xdg-open", url).Start()
+}
 
 func configPath() (string, error) {
 	dir, err := os.UserConfigDir()

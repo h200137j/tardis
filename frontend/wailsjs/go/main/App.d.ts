@@ -4,9 +4,15 @@ import {main} from '../models';
 
 export function Cancel():Promise<void>;
 
+export function CheckForUpdate():Promise<main.UpdateInfo>;
+
 export function GetConfig():Promise<main.Config>;
 
+export function GetVersion():Promise<string>;
+
 export function ImportLocal(arg1:string):Promise<void>;
+
+export function OpenURL(arg1:string):Promise<void>;
 
 export function PickFile():Promise<string>;
 

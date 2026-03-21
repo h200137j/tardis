@@ -12,6 +12,9 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// version is injected at build time via -ldflags "-X main.version=v1.0.x"
+var version = "dev"
+
 func main() {
 	app := NewApp()
 

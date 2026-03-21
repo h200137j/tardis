@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import { SyncDatabase, SyncToTest, SyncAndImportLocal, PickFile, ImportLocal, Cancel } from '../../wailsjs/go/main/App'
+import AnimationCanvas from './AnimationCanvas'
 import './HomeView.css'
 
 const STATUS = { IDLE: 'idle', RUNNING: 'running', DONE: 'done', ERROR: 'error', CANCELLED: 'cancelled' }
@@ -16,12 +17,13 @@ function fmtDuration(ms) {
   return `${s}s`
 }
 
-function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transferEvent, fn }) {
+function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transferEvent, fn, animCountRef }) {
   const [status, setStatus]     = useState(STATUS.IDLE)
   const [logs, setLogs]         = useState([])
-  const [transfer, setTransfer] = useState(null)   // { bytes, total }
-  const [elapsed, setElapsed]   = useState(0)      // ms
-  const [totalTime, setTotalTime] = useState(null) // ms, set on done/error
+  const [transfer, setTransfer] = useState(null)
+  const [elapsed, setElapsed]   = useState(0)
+  const [totalTime, setTotalTime] = useState(null)
+  const [animIndex, setAnimIndex] = useState(0)
   const logEndRef               = useRef(null)
   const startRef                = useRef(null)
   const timerRef                = useRef(null)
@@ -77,6 +79,8 @@ function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transfe
   useEffect(() => () => clearInterval(timerRef.current), [])
 
   const run = async (overrideFn) => {
+    const idx = animCountRef ? animCountRef.current++ : 0
+    setAnimIndex(idx)
     setStatus(STATUS.RUNNING)
     setLogs([])
     setTransfer(null)
@@ -96,10 +100,12 @@ function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transfe
     setElapsed(0)
   }
 
-  return { status, logs, logEndRef, transfer, elapsed, totalTime, run, clear }
+  return { status, logs, logEndRef, transfer, elapsed, totalTime, animIndex, run, clear }
 }
 
 export default function HomeView() {
+  const animCountRef = useRef(0)
+
   const prod = useSync({
     progressEvent:  'sync:progress',
     doneEvent:      'sync:done',
@@ -107,6 +113,7 @@ export default function HomeView() {
     cancelledEvent: 'sync:cancelled',
     transferEvent:  'sync:transfer',
     fn:             SyncDatabase,
+    animCountRef,
   })
 
   const test = useSync({
@@ -116,6 +123,7 @@ export default function HomeView() {
     cancelledEvent: 'test:cancelled',
     transferEvent:  'test:transfer',
     fn:             SyncToTest,
+    animCountRef,
   })
 
   const pull = useSync({
@@ -125,6 +133,7 @@ export default function HomeView() {
     cancelledEvent: 'pull:cancelled',
     transferEvent:  'pull:transfer',
     fn:             SyncAndImportLocal,
+    animCountRef,
   })
 
   const importSync = useSync({
@@ -134,6 +143,7 @@ export default function HomeView() {
     cancelledEvent: 'import:cancelled',
     transferEvent:  'import:transfer',
     fn:             () => {},
+    animCountRef,
   })
 
   const handlePickAndImport = async () => {
@@ -163,7 +173,29 @@ export default function HomeView() {
         <div className="btn-row">
           <SyncButton label="⬇ Pull from Production" busyLabel="Pulling..."  status={prod.status} disabled={anyBusy} onClick={prod.run} variant="primary" />
           <SyncButton label="⬆ Push to Test Server"  busyLabel="Pushing..."  status={test.status} disabled={anyBusy} onClick={test.run} variant="purple" />
-          <SyncButton label="⬇ Pull & Import Local"  busyLabel="Working..."  status={pull.status} disabled={anyBusy} onClick={pull.run} variant="teal" />
+        </div>
+
+        {/* Primary CTA */}
+        <div className="cta-primary">
+          <button
+            className={`cta-primary-btn ${pull.status === STATUS.RUNNING ? 'busy' : ''} ${pull.status === STATUS.ERROR ? 'errored' : ''}`}
+            onClick={pull.run}
+            disabled={anyBusy}
+          >
+            {pull.status === STATUS.RUNNING ? (
+              <span className="cta-label"><span className="spinner" /><span className="cta-label-text"><span className="cta-label-main">Working...</span></span></span>
+            ) : (
+              <span className="cta-label">
+                <span className="cta-label-icon">⬇</span>
+                <span className="cta-label-text">
+                  <span className="cta-label-main">
+                    {pull.status === STATUS.DONE ? '✓ Run Again' : pull.status === STATUS.ERROR ? '↺ Retry' : pull.status === STATUS.CANCELLED ? '↺ Try Again' : 'Pull & Import Local'}
+                  </span>
+                  <span className="cta-label-sub">production → local MySQL</span>
+                </span>
+              </span>
+            )}
+          </button>
         </div>
 
         {anyBusy && (
@@ -202,14 +234,16 @@ export default function HomeView() {
 }
 
 function ProgressPanel({ sync, onClear }) {
-  const { status, logs, logEndRef, transfer, elapsed, totalTime } = sync
+  const { status, logs, logEndRef, transfer, elapsed, totalTime, animIndex } = sync
   const isRunning = status === STATUS.RUNNING
   const pct = transfer && transfer.total > 0
     ? Math.min(100, Math.round((transfer.bytes / transfer.total) * 100))
     : null
 
-  // Distinguish table progress (small numbers) from byte transfer (large numbers)
   const isTableProgress = transfer && transfer.total > 0 && transfer.total < 100000
+  const animProgress = isTableProgress
+    ? (transfer.bytes / transfer.total)
+    : pct != null ? pct / 100 : 0
 
   const lastLog = logs[logs.length - 1]
 
@@ -233,9 +267,17 @@ function ProgressPanel({ sync, onClear }) {
         </div>
       </div>
 
+      {/* Animation — visible while running */}
+      {isRunning && (
+        <AnimationCanvas
+          animIndex={animIndex}
+          isRunning={isRunning}
+          progress={animProgress}
+        />
+      )}
+
       {/* Transfer / import progress bar */}
-      {transfer && transfer.total > 0 && (
-        <div className="transfer-section">
+      {transfer && transfer.total > 0 && (        <div className="transfer-section">
           <div className="transfer-info">
             <span className="transfer-label">
               {isTableProgress

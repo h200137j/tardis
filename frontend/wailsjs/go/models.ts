@@ -77,6 +77,25 @@ export namespace main {
 		}
 	}
 	
+	
+	export class UpdateInfo {
+	    has_update: boolean;
+	    latest: string;
+	    current: string;
+	    download_url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.has_update = source["has_update"];
+	        this.latest = source["latest"];
+	        this.current = source["current"];
+	        this.download_url = source["download_url"];
+	    }
+	}
 
 }
 

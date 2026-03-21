@@ -5,6 +5,7 @@ export namespace main {
 	    db_name: string;
 	    db_user: string;
 	    db_pass: string;
+	    save_dump: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new LocalConfig(source);
@@ -16,6 +17,7 @@ export namespace main {
 	        this.db_name = source["db_name"];
 	        this.db_user = source["db_user"];
 	        this.db_pass = source["db_pass"];
+	        this.save_dump = source["save_dump"];
 	    }
 	}
 	export class ServerConfig {

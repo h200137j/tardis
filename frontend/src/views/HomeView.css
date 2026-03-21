@@ -13,8 +13,8 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 16px;
-  padding: 48px 32px 40px;
+  gap: 14px;
+  padding: 40px 32px 32px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -480,8 +480,121 @@
 /* ── Animation Canvas ── */
 .anim-canvas {
   width: 100%;
-  height: 160px;
+  height: 220px;
   display: block;
   border-bottom: 1px solid var(--border);
   background: #0a0e18;
+}
+
+/* ── Mobile Remote pill ── */
+.mobile-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 16px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  position: relative;
+  z-index: 1;
+  letter-spacing: 0.02em;
+}
+
+.mobile-pill:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(77, 184, 255, 0.06);
+}
+
+.mobile-pill.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(77, 184, 255, 0.08);
+}
+
+.mobile-pill-icon { font-size: 14px; }
+
+/* ── QR Panel ── */
+.qr-panel {
+  background: var(--surface);
+  border: 1px solid rgba(77, 184, 255, 0.25);
+  border-radius: var(--radius);
+  overflow: hidden;
+  animation: qrSlideIn 0.2s ease;
+}
+
+@keyframes qrSlideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.qr-panel-inner {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 24px;
+}
+
+.qr-left { flex-shrink: 0; }
+
+.qr-img {
+  width: 160px;
+  height: 160px;
+  border-radius: 10px;
+  display: block;
+  image-rendering: pixelated;
+  border: 3px solid var(--surface2);
+}
+
+.qr-right {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.qr-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.qr-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.qr-url {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--accent);
+  background: var(--surface2);
+  padding: 6px 10px;
+  border-radius: 6px;
+  word-break: break-all;
+  border: 1px solid var(--border);
+}
+
+.qr-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.qr-hint::before {
+  content: '📶';
+  font-size: 11px;
+}
+
+@media (max-width: 480px) {
+  .qr-panel-inner { flex-direction: column; align-items: flex-start; }
+  .qr-img { width: 140px; height: 140px; }
 }

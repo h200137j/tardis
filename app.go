@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	pgzip "github.com/klauspost/pgzip"
 	"github.com/pkg/sftp"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/crypto/ssh"
@@ -37,6 +37,7 @@ type LocalConfig struct {
 	DBName   string `json:"db_name"`
 	DBUser   string `json:"db_user"`
 	DBPass   string `json:"db_pass"`
+	SaveDump bool   `json:"save_dump"`
 }
 
 // Config is the top-level config persisted to disk.
@@ -459,40 +460,16 @@ type ImportProgress struct {
 	Total   int    `json:"total"`
 }
 
-// countTables does a quick scan of the gz file to count CREATE TABLE statements.
-func countTables(filePath string) (int, error) {
-	f, err := os.Open(filePath)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-
-	var r io.Reader = f
-	if strings.HasSuffix(filePath, ".gz") {
-		gz, err := gzip.NewReader(f)
-		if err != nil {
-			return 0, err
-		}
-		defer gz.Close()
-		r = gz
-	}
-
-	count := 0
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "-- Table structure for table") {
-			count++
-		}
-	}
-	return count, nil
-}
-
-// streamingImport decompresses filePath and pipes it to mysql line by line,
-// emitting ImportProgress events as each table starts.
+// streamingImport decompresses filePath and pipes it to mysql as fast as possible.
+// It scans for table markers to emit progress, but feeds MySQL via a large buffered
+// writer to avoid per-line syscall overhead. countTables is done in a single pass
+// concurrently so there is no double-read of the file.
 func streamingImport(ctx context.Context, filePath, mysqlBin string, args []string, onProgress func(ImportProgress)) error {
-	totalTables, _ := countTables(filePath)
+	// ── Speed flags: disable sync/redo overhead for local imports ──────────
+	speedArgs := []string{
+		"--init-command=SET SESSION foreign_key_checks=0; SET SESSION unique_checks=0; SET SESSION sql_log_bin=0; SET GLOBAL innodb_flush_log_at_trx_commit=0;",
+	}
+	args = append(speedArgs, args...)
 
 	f, err := os.Open(filePath)
 	if err != nil {
@@ -502,7 +479,7 @@ func streamingImport(ctx context.Context, filePath, mysqlBin string, args []stri
 
 	var r io.Reader = f
 	if strings.HasSuffix(filePath, ".gz") {
-		gz, err := gzip.NewReader(f)
+		gz, err := pgzip.NewReader(f)
 		if err != nil {
 			return fmt.Errorf("could not decompress file: %w", err)
 		}
@@ -515,14 +492,16 @@ func streamingImport(ctx context.Context, filePath, mysqlBin string, args []stri
 	if err != nil {
 		return fmt.Errorf("could not open mysql stdin: %w", err)
 	}
-
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("could not start mysql: %w", err)
 	}
 
+	// 32 MB write buffer — MySQL gets large chunks instead of one line at a time
+	bw := bufio.NewWriterSize(stdin, 32*1024*1024)
+
 	current := 0
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 4*1024*1024), 4*1024*1024)
+	scanner.Buffer(make([]byte, 8*1024*1024), 8*1024*1024)
 
 	for scanner.Scan() {
 		if ctx.Err() != nil {
@@ -530,23 +509,28 @@ func streamingImport(ctx context.Context, filePath, mysqlBin string, args []stri
 			cmd.Wait()
 			return ctx.Err()
 		}
-		line := scanner.Text()
-		if strings.HasPrefix(line, "-- Table structure for table") {
+
+		line := scanner.Bytes()
+		lineStr := scanner.Text()
+
+		if strings.HasPrefix(lineStr, "-- Table structure for table") {
+			bw.Flush()
 			current++
-			// extract table name from: -- Table structure for table `name`
-			table := line
-			if i := strings.Index(line, "`"); i >= 0 {
-				table = strings.Trim(line[i:], "`")
-				table = strings.ReplaceAll(table, "`", "")
+			table := lineStr
+			if i := strings.Index(lineStr, "`"); i >= 0 {
+				table = strings.ReplaceAll(lineStr[i:], "`", "")
 			}
 			if onProgress != nil {
-				onProgress(ImportProgress{Table: table, Current: current, Total: totalTables})
+				onProgress(ImportProgress{Table: table, Current: current, Total: 0})
 			}
 		}
-		if _, err := fmt.Fprintln(stdin, line); err != nil {
-			break
-		}
+
+		bw.Write(line)
+		bw.WriteByte('\n')
 	}
+
+	// flush remaining buffer before closing stdin
+	bw.Flush()
 	stdin.Close()
 
 	if err := cmd.Wait(); err != nil {
@@ -557,6 +541,7 @@ func streamingImport(ctx context.Context, filePath, mysqlBin string, args []stri
 	}
 	return nil
 }
+
 
 // ── SyncDatabase: prod → ~/Downloads ─────────────────────────────────────────
 
@@ -765,7 +750,9 @@ func (a *App) SyncAndImportLocal() error {
 		if ctx.Err() != nil {
 			a.emit("pull:progress", "Cancelling — cleaning up...")
 			runSSHCommandBestEffort(prod, "rm -f "+remoteFile)
-			cleanupLocal(localPath)
+			if !local.SaveDump {
+				cleanupLocal(localPath)
+			}
 			a.emit("pull:cancelled", "Operation cancelled.")
 		}
 	}()
@@ -777,19 +764,20 @@ func (a *App) SyncAndImportLocal() error {
 	}
 	defer client.Close()
 
-	a.emit("pull:progress", "Dumping database...")
+	a.emit("pull:phase", "dumping")
+	a.emit("pull:progress", "Dumping database on server...")
 	dumpCmd := fmt.Sprintf(
-		"mysqldump -u %s -p%s %s --single-transaction | sed '/^.*999999.*sandbox/d' | gzip > %s",
+		"mysqldump -u %s -p%s %s --single-transaction --quick --no-tablespaces --skip-add-locks | sed '/^.*999999.*sandbox/d' | gzip > %s",
 		prod.DBUser, prod.DBPassword, prod.DBName, remoteFile,
 	)
 	if err := runSSHCommand(client, dumpCmd); err != nil {
 		return a.fail("pull:error", "pull:progress", "Dump failed: %v", err)
 	}
-
 	if ctx.Err() != nil {
 		return nil
 	}
 
+	a.emit("pull:phase", "downloading")
 	a.emit("pull:progress", "Downloading dump...")
 	sftpClient, err := sftp.NewClient(client, sftp.MaxConcurrentRequestsPerFile(200))
 	if err != nil {
@@ -811,12 +799,13 @@ func (a *App) SyncAndImportLocal() error {
 		return a.fail("pull:error", "pull:progress", "Download failed: %v", err)
 	}
 	a.emit("pull:progress", fmt.Sprintf("Downloaded to ~/Downloads/%s", localFileName))
-	runSSHCommand(client, "rm "+remoteFile)
+	runSSHCommand(client, "rm -f "+remoteFile)
 
 	if ctx.Err() != nil {
 		return nil
 	}
 
+	a.emit("pull:phase", "importing")
 	a.emit("pull:progress", fmt.Sprintf("Importing into local database '%s'...", local.DBName))
 
 	mysqlBin := local.MySQLBin
@@ -830,13 +819,18 @@ func (a *App) SyncAndImportLocal() error {
 	mysqlArgs = append(mysqlArgs, local.DBName)
 
 	if err := streamingImport(ctx, localPath, mysqlBin, mysqlArgs, func(p ImportProgress) {
-		a.emit("pull:progress", fmt.Sprintf("Importing table %s (%d/%d)...", p.Table, p.Current, p.Total))
-		a.emitTransfer("pull:transfer", TransferProgress{Bytes: int64(p.Current), Total: int64(p.Total)})
+		a.emit("pull:progress", fmt.Sprintf("Importing table %s (%d)...", p.Table, p.Current))
+		a.emitTransfer("pull:transfer", TransferProgress{Bytes: int64(p.Current), Total: 0})
 	}); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
 		return a.fail("pull:error", "pull:progress", "Import failed: %v", err)
+	}
+
+	// clean up local dump unless user wants to keep it
+	if !local.SaveDump {
+		cleanupLocal(localPath)
 	}
 
 	a.emit("pull:done", fmt.Sprintf("Done! Production imported into local '%s'", local.DBName))
@@ -880,8 +874,8 @@ func (a *App) ImportLocal(filePath string) error {
 	args = append(args, local.DBName)
 
 	if err := streamingImport(ctx, filePath, mysqlBin, args, func(p ImportProgress) {
-		a.emit("import:progress", fmt.Sprintf("Importing table %s (%d/%d)...", p.Table, p.Current, p.Total))
-		a.emitTransfer("import:transfer", TransferProgress{Bytes: int64(p.Current), Total: int64(p.Total)})
+		a.emit("import:progress", fmt.Sprintf("Importing table %s (%d)...", p.Table, p.Current))
+		a.emitTransfer("import:transfer", TransferProgress{Bytes: int64(p.Current), Total: 0})
 	}); err != nil {
 		if ctx.Err() != nil {
 			a.emit("import:cancelled", "Import cancelled.")

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
-import { SyncDatabase, SyncToTest, SyncAndImportLocal, PickFile, ImportLocal, Cancel } from '../../wailsjs/go/main/App'
+import { SyncDatabase, SyncToTest, SyncAndImportLocal, PickFile, ImportLocal, Cancel, GetMobileQR, GetMobileURL } from '../../wailsjs/go/main/App'
 import AnimationCanvas from './AnimationCanvas'
 import './HomeView.css'
 
@@ -17,13 +17,14 @@ function fmtDuration(ms) {
   return `${s}s`
 }
 
-function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transferEvent, fn, animCountRef }) {
+function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transferEvent, phaseEvent, fn, animCountRef }) {
   const [status, setStatus]     = useState(STATUS.IDLE)
   const [logs, setLogs]         = useState([])
   const [transfer, setTransfer] = useState(null)
   const [elapsed, setElapsed]   = useState(0)
   const [totalTime, setTotalTime] = useState(null)
   const [animIndex, setAnimIndex] = useState(0)
+  const [phase, setPhase]       = useState('idle')
   const logEndRef               = useRef(null)
   const startRef                = useRef(null)
   const timerRef                = useRef(null)
@@ -69,8 +70,11 @@ function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transfe
     const off5 = transferEvent
       ? EventsOn(transferEvent, data => setTransfer(data))
       : () => {}
-    return () => { off1(); off2(); off3(); off4(); off5() }
-  }, [progressEvent, doneEvent, errorEvent, cancelledEvent, transferEvent, addLog])
+    const off6 = phaseEvent
+      ? EventsOn(phaseEvent, p => setPhase(p))
+      : () => {}
+    return () => { off1(); off2(); off3(); off4(); off5(); off6() }
+  }, [progressEvent, doneEvent, errorEvent, cancelledEvent, transferEvent, phaseEvent, addLog])
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -81,6 +85,7 @@ function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transfe
   const run = async (overrideFn) => {
     const idx = animCountRef ? animCountRef.current++ : 0
     setAnimIndex(idx)
+    setPhase('idle')
     setStatus(STATUS.RUNNING)
     setLogs([])
     setTransfer(null)
@@ -100,11 +105,28 @@ function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transfe
     setElapsed(0)
   }
 
-  return { status, logs, logEndRef, transfer, elapsed, totalTime, animIndex, run, clear }
+  return { status, logs, logEndRef, transfer, elapsed, totalTime, animIndex, phase, run, clear }
 }
 
 export default function HomeView() {
   const animCountRef = useRef(0)
+  const [qrOpen, setQrOpen]     = useState(false)
+  const [qrImg, setQrImg]       = useState('')
+  const [qrUrl, setQrUrl]       = useState('')
+  const [qrLoading, setQrLoading] = useState(false)
+
+  const toggleQR = async () => {
+    if (qrOpen) { setQrOpen(false); return }
+    if (qrImg)  { setQrOpen(true);  return }
+    setQrLoading(true)
+    try {
+      const [img, url] = await Promise.all([GetMobileQR(), GetMobileURL()])
+      setQrImg(img)
+      setQrUrl(url)
+      setQrOpen(true)
+    } catch (_) {}
+    finally { setQrLoading(false) }
+  }
 
   const prod = useSync({
     progressEvent:  'sync:progress',
@@ -132,6 +154,7 @@ export default function HomeView() {
     errorEvent:     'pull:error',
     cancelledEvent: 'pull:cancelled',
     transferEvent:  'pull:transfer',
+    phaseEvent:     'pull:phase',
     fn:             SyncAndImportLocal,
     animCountRef,
   })
@@ -164,12 +187,11 @@ export default function HomeView() {
   return (
     <div className="home">
       <div className="hero">
+        {/* floating db icon */}
         <div className="hero-icon">🗄️</div>
         <h1 className="hero-title">Database Sync</h1>
-        <p className="hero-desc">
-          Pull production to <code>~/Downloads</code>, push to your test server, or import straight into local MySQL.
-        </p>
 
+        {/* secondary ops row */}
         <div className="btn-row">
           <SyncButton label="⬇ Pull from Production" busyLabel="Pulling..."  status={prod.status} disabled={anyBusy} onClick={prod.run} variant="primary" />
           <SyncButton label="⬆ Push to Test Server"  busyLabel="Pushing..."  status={test.status} disabled={anyBusy} onClick={test.run} variant="purple" />
@@ -201,9 +223,32 @@ export default function HomeView() {
         {anyBusy && (
           <button className="cancel-btn" onClick={() => Cancel()}>✕ Cancel</button>
         )}
+
+        {/* Mobile remote pill */}
+        <button className={`mobile-pill ${qrOpen ? 'active' : ''}`} onClick={toggleQR} disabled={qrLoading}>
+          <span className="mobile-pill-icon">{qrLoading ? '⏳' : '📱'}</span>
+          <span>{qrOpen ? 'Hide Remote' : 'Mobile Remote'}</span>
+        </button>
       </div>
 
-      {/* ── Import card ── */}
+      {/* QR panel — slides in below hero */}
+      {qrOpen && qrImg && (
+        <div className="qr-panel">
+          <div className="qr-panel-inner">
+            <div className="qr-left">
+              <img src={qrImg} alt="Scan to open TARDIS Remote" className="qr-img" />
+            </div>
+            <div className="qr-right">
+              <p className="qr-title">📱 TARDIS Remote</p>
+              <p className="qr-desc">Scan with your phone to trigger syncs from anywhere on your network.</p>
+              <p className="qr-url">{qrUrl}</p>
+              <p className="qr-hint">Same Wi-Fi required</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import card */}
       <div className="import-card">
         <div className="import-card-left">
           <span className="import-icon">💻</span>
@@ -225,7 +270,6 @@ export default function HomeView() {
         </button>
       </div>
 
-      {/* ── Progress panel ── */}
       {active.logs.length > 0 && (
         <ProgressPanel sync={active} onClear={active.clear} />
       )}
@@ -234,13 +278,13 @@ export default function HomeView() {
 }
 
 function ProgressPanel({ sync, onClear }) {
-  const { status, logs, logEndRef, transfer, elapsed, totalTime, animIndex } = sync
+  const { status, logs, logEndRef, transfer, elapsed, totalTime, animIndex, phase } = sync
   const isRunning = status === STATUS.RUNNING
   const pct = transfer && transfer.total > 0
     ? Math.min(100, Math.round((transfer.bytes / transfer.total) * 100))
     : null
 
-  const isTableProgress = transfer && transfer.total > 0 && transfer.total < 100000
+  const isTableProgress = transfer && transfer.total === 0 && transfer.bytes > 0
   const animProgress = isTableProgress
     ? (transfer.bytes / transfer.total)
     : pct != null ? pct / 100 : 0
@@ -267,36 +311,39 @@ function ProgressPanel({ sync, onClear }) {
         </div>
       </div>
 
-      {/* Animation — visible while running */}
       {isRunning && (
         <AnimationCanvas
           animIndex={animIndex}
           isRunning={isRunning}
           progress={animProgress}
+          phase={phase}
         />
       )}
 
       {/* Transfer / import progress bar */}
-      {transfer && transfer.total > 0 && (        <div className="transfer-section">
+      {transfer && (transfer.total > 0 || transfer.bytes > 0) && (
+        <div className="transfer-section">
           <div className="transfer-info">
             <span className="transfer-label">
               {isTableProgress
-                ? (pct < 100 ? 'Importing tables' : 'Import complete')
+                ? 'Importing tables'
                 : (pct < 100 ? 'Transferring' : 'Transfer complete')}
             </span>
             <span className="transfer-bytes">
               {isTableProgress
-                ? `${transfer.bytes} / ${transfer.total} tables`
+                ? `${transfer.bytes} tables imported`
                 : `${fmtMB(transfer.bytes)} MB / ${fmtMB(transfer.total)} MB`}
-              <span className="transfer-pct"> — {pct}%</span>
+              {!isTableProgress && <span className="transfer-pct"> — {pct}%</span>}
             </span>
           </div>
-          <div className="progress-bar-track">
-            <div
-              className={`progress-bar-fill ${pct >= 100 ? 'complete' : ''}`}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
+          {!isTableProgress && (
+            <div className="progress-bar-track">
+              <div
+                className={`progress-bar-fill ${pct >= 100 ? 'complete' : ''}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          )}
         </div>
       )}
 

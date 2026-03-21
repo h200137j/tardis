@@ -412,9 +412,9 @@ function setProgress(bytes, total) {
   const pct = Math.min(100, Math.round(bytes / total * 100))
   document.getElementById('progress-fill').style.width = pct + '%'
   document.getElementById('progress-pct').textContent = pct + '%'
-  const isTable = total < 100000
+  const isTable = total === 0 && bytes > 0
   document.getElementById('progress-label-left').textContent = isTable
-    ? bytes + ' / ' + total + ' tables'
+    ? bytes + ' tables imported'
     : (bytes/1024/1024).toFixed(1) + ' MB / ' + (total/1024/1024).toFixed(1) + ' MB'
 }
 

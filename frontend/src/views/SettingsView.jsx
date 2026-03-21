@@ -20,6 +20,7 @@ const DEFAULT = {
     db_name:   '',
     db_user:   'root',
     db_pass:   '',
+    save_dump: false,
   },
 }
 
@@ -122,6 +123,13 @@ export default function SettingsView() {
                 <input type="text" value={form.local.db_name}
                   onChange={e => set('local', 'db_name', e.target.value)}
                   placeholder="my_local_db" />
+              </Field>
+              <Field label="Save dump to ~/Downloads" hint="Keep a .sql.gz copy after import">
+                <label className="toggle">
+                  <input type="checkbox" checked={!!form.local.save_dump}
+                    onChange={e => set('local', 'save_dump', e.target.checked)} />
+                  <span className="toggle-track"><span className="toggle-thumb" /></span>
+                </label>
               </Field>
             </div>
           </div>

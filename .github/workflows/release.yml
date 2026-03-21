@@ -90,14 +90,49 @@ jobs:
           body: |
             ## TARDIS ${{ github.ref_name }}
 
-            ### Install
+            ### Install (Linux)
             ```bash
             sudo dpkg -i tardis_*_amd64.deb
             sudo apt-get install -f
             ```
 
-            ### Run
+            ### Run (Linux)
             ```bash
             tardis
             ```
+
+            ### Install (Windows)
+            Download `tardis-windows-amd64.zip`, extract and run `tardis.exe`.
           files: tardis_*.deb
+
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+
+      - name: Build Windows binary
+        run: ~/go/bin/wails build -ldflags "-X main.version=${{ github.ref_name }}"
+
+      - name: Zip executable
+        run: Compress-Archive -Path build/bin/tardis.exe -DestinationPath tardis-windows-amd64.zip
+        shell: pwsh
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: tardis-windows-amd64.zip

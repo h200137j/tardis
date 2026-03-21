@@ -14,6 +14,14 @@ export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
 
+export function GetMobileQR() {
+  return window['go']['main']['App']['GetMobileQR']();
+}
+
+export function GetMobileURL() {
+  return window['go']['main']['App']['GetMobileURL']();
+}
+
 export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
 }

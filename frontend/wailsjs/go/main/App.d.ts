@@ -8,6 +8,10 @@ export function CheckForUpdate():Promise<main.UpdateInfo>;
 
 export function GetConfig():Promise<main.Config>;
 
+export function GetMobileQR():Promise<string>;
+
+export function GetMobileURL():Promise<string>;
+
 export function GetVersion():Promise<string>;
 
 export function ImportLocal(arg1:string):Promise<void>;

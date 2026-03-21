@@ -150,3 +150,57 @@
 @media (max-width: 560px) {
   .fieldset-columns { grid-template-columns: 1fr; }
 }
+
+/* ── Mobile Companion ── */
+.fieldset--mobile {
+  border-color: rgba(77, 184, 255, 0.3);
+}
+
+.mobile-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.btn-qr {
+  align-self: flex-start;
+  background: rgba(77, 184, 255, 0.1);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 20px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-qr:hover {
+  background: rgba(77, 184, 255, 0.18);
+}
+
+.qr-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--surface2);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.qr-img {
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  image-rendering: pixelated;
+}
+
+.qr-url {
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+  text-align: center;
+  font-family: monospace;
+}

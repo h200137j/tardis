@@ -54,8 +54,9 @@ type TransferProgress struct {
 
 // App is the main Wails application struct.
 type App struct {
-	ctx    context.Context
-	config Config
+	ctx          context.Context
+	config       Config
+	mobileServer *MobileServer
 
 	cancelMu sync.Mutex
 	cancelFn context.CancelFunc
@@ -72,6 +73,8 @@ func (a *App) startup(ctx context.Context) {
 			Local:      LocalConfig{MySQLBin: "/opt/lampp/bin/mysql", DBUser: "root"},
 		}
 	}
+	a.mobileServer = newMobileServer(a)
+	a.mobileServer.Start()
 }
 
 // ── Version & Updates ─────────────────────────────────────────────────────────
@@ -200,8 +203,49 @@ func (a *App) Cancel() {
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
+// opFromEvent maps event prefixes to op names for mobile broadcast.
+func opFromEvent(event string) string {
+	switch {
+	case strings.HasPrefix(event, "sync:"):
+		return "sync"
+	case strings.HasPrefix(event, "test:"):
+		return "test"
+	case strings.HasPrefix(event, "pull:"):
+		return "pull"
+	case strings.HasPrefix(event, "import:"):
+		return "import"
+	}
+	return ""
+}
+
+// levelFromEvent maps event suffixes to log levels.
+func levelFromEvent(event string) string {
+	switch {
+	case strings.HasSuffix(event, ":done"):
+		return "success"
+	case strings.HasSuffix(event, ":error"):
+		return "error"
+	case strings.HasSuffix(event, ":cancelled"):
+		return "warning"
+	}
+	return "info"
+}
+
 func (a *App) emit(event string, data any) {
 	runtime.EventsEmit(a.ctx, event, data)
+	// Mirror log events to mobile clients
+	if a.mobileServer != nil {
+		if msg, ok := data.(string); ok {
+			a.mobileServer.BroadcastLog(opFromEvent(event), msg, levelFromEvent(event))
+		}
+	}
+}
+
+func (a *App) emitTransfer(event string, tp TransferProgress) {
+	runtime.EventsEmit(a.ctx, event, tp)
+	if a.mobileServer != nil {
+		a.mobileServer.BroadcastProgress(opFromEvent(event), tp.Bytes, tp.Total)
+	}
 }
 
 func (a *App) fail(errEvent, progressEvent, format string, args ...any) error {
@@ -569,7 +613,7 @@ func (a *App) SyncDatabase() error {
 	}
 
 	if err := downloadFile(ctx, sftpClient, remoteFile, localPath, func(bytes, total int64) {
-		a.emit("sync:transfer", TransferProgress{Bytes: bytes, Total: total})
+		a.emitTransfer("sync:transfer", TransferProgress{Bytes: bytes, Total: total})
 	}); err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -645,7 +689,7 @@ func (a *App) SyncToTest() error {
 	}
 
 	if err := downloadFile(ctx, prodSFTP, prodRemoteFile, localPath, func(bytes, total int64) {
-		a.emit("test:transfer", TransferProgress{Bytes: bytes, Total: total})
+		a.emitTransfer("test:transfer", TransferProgress{Bytes: bytes, Total: total})
 	}); err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -674,7 +718,7 @@ func (a *App) SyncToTest() error {
 	defer testSFTP.Close()
 
 	if err := uploadFile(ctx, testSFTP, localPath, testRemoteFile, func(bytes, total int64) {
-		a.emit("test:transfer", TransferProgress{Bytes: bytes, Total: total})
+		a.emitTransfer("test:transfer", TransferProgress{Bytes: bytes, Total: total})
 	}); err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -759,7 +803,7 @@ func (a *App) SyncAndImportLocal() error {
 	}
 
 	if err := downloadFile(ctx, sftpClient, remoteFile, localPath, func(bytes, total int64) {
-		a.emit("pull:transfer", TransferProgress{Bytes: bytes, Total: total})
+		a.emitTransfer("pull:transfer", TransferProgress{Bytes: bytes, Total: total})
 	}); err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -787,7 +831,7 @@ func (a *App) SyncAndImportLocal() error {
 
 	if err := streamingImport(ctx, localPath, mysqlBin, mysqlArgs, func(p ImportProgress) {
 		a.emit("pull:progress", fmt.Sprintf("Importing table %s (%d/%d)...", p.Table, p.Current, p.Total))
-		a.emit("pull:transfer", TransferProgress{Bytes: int64(p.Current), Total: int64(p.Total)})
+		a.emitTransfer("pull:transfer", TransferProgress{Bytes: int64(p.Current), Total: int64(p.Total)})
 	}); err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -837,7 +881,7 @@ func (a *App) ImportLocal(filePath string) error {
 
 	if err := streamingImport(ctx, filePath, mysqlBin, args, func(p ImportProgress) {
 		a.emit("import:progress", fmt.Sprintf("Importing table %s (%d/%d)...", p.Table, p.Current, p.Total))
-		a.emit("import:transfer", TransferProgress{Bytes: int64(p.Current), Total: int64(p.Total)})
+		a.emitTransfer("import:transfer", TransferProgress{Bytes: int64(p.Current), Total: int64(p.Total)})
 	}); err != nil {
 		if ctx.Err() != nil {
 			a.emit("import:cancelled", "Import cancelled.")

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { GetConfig, SaveConfig } from '../../wailsjs/go/main/App'
+import { GetConfig, SaveConfig, GetMobileQR, GetMobileURL } from '../../wailsjs/go/main/App'
 import './SettingsView.css'
 
 const EMPTY_SERVER = {
@@ -28,6 +28,9 @@ export default function SettingsView() {
   const [saved, setSaved]     = useState(false)
   const [error, setError]     = useState('')
   const [loading, setLoading] = useState(true)
+  const [qr, setQr]           = useState('')
+  const [mobileUrl, setMobileUrl] = useState('')
+  const [qrVisible, setQrVisible] = useState(false)
 
   useEffect(() => {
     GetConfig()
@@ -39,6 +42,18 @@ export default function SettingsView() {
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
+
+  const showQR = async () => {
+    if (qrVisible) { setQrVisible(false); return }
+    try {
+      const [qrData, url] = await Promise.all([GetMobileQR(), GetMobileURL()])
+      setQr(qrData)
+      setMobileUrl(url)
+      setQrVisible(true)
+    } catch (err) {
+      setError('Could not generate QR: ' + String(err))
+    }
+  }
 
   const set = (server, key, val) =>
     setForm(f => ({ ...f, [server]: { ...f[server], [key]: val } }))
@@ -113,6 +128,24 @@ export default function SettingsView() {
         </fieldset>
 
         {error && <p className="form-error" role="alert">{error}</p>}
+
+        {/* Mobile Companion */}
+        <fieldset className="fieldset fieldset--mobile">
+          <legend>📱 Mobile Companion</legend>
+          <p className="mobile-desc">
+            Scan the QR code with your phone to open the TARDIS Remote web app.
+            Both devices must be on the same network.
+          </p>
+          <button type="button" className="btn-qr" onClick={showQR}>
+            {qrVisible ? '✕ Hide QR Code' : '📱 Show QR Code'}
+          </button>
+          {qrVisible && qr && (
+            <div className="qr-block">
+              <img src={qr} alt="QR code for TARDIS Remote" className="qr-img" />
+              <p className="qr-url">{mobileUrl}</p>
+            </div>
+          )}
+        </fieldset>
 
         <div className="form-actions">
           <button type="submit" className="btn-save">

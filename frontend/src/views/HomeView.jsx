@@ -188,8 +188,7 @@ export default function HomeView() {
     <div className="home">
       <div className="hero">
         {/* floating db icon */}
-        <div className="hero-icon">🗄️</div>
-        <h1 className="hero-title">Database Sync</h1>
+        <h1 className="hero-title">Tardis</h1>
 
         {/* secondary ops row */}
         <div className="btn-row">

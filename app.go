@@ -326,6 +326,20 @@ func runSSHCommandBestEffort(s ServerConfig, cmd string) {
 	runSSHCommand(client, cmd)
 }
 
+// runSSHCommandOutput runs cmd and returns its combined stdout+stderr as a string.
+func runSSHCommandOutput(client *ssh.Client, cmd string) (string, error) {
+	session, err := client.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("could not open SSH session: %w", err)
+	}
+	defer session.Close()
+	out, err := session.CombinedOutput(cmd)
+	if err != nil {
+		return "", fmt.Errorf("command error: %w — output: %s", err, string(out))
+	}
+	return string(out), nil
+}
+
 // ── Transfer helpers ──────────────────────────────────────────────────────────
 
 func downloadFile(ctx context.Context, sftpClient *sftp.Client, remotePath, localPath string, onBytes func(bytes, total int64)) error {
@@ -613,7 +627,11 @@ func (a *App) SyncDatabase() error {
 	return nil
 }
 
-// ── SyncToTest: prod → local → test server ───────────────────────────────────
+// ── SyncToTest: test server SSHes into prod over LAN and pipes directly ─────────
+//
+// Data path: prod (mysqldump|gzip) ──LAN──▶ test (gunzip|mysql)
+// The local machine only orchestrates — no data touches it.
+// A small shell script is written to the test server to avoid nested-quote hell.
 
 func (a *App) SyncToTest() error {
 	ctx := a.newOpCtx()
@@ -627,67 +645,11 @@ func (a *App) SyncToTest() error {
 		return fmt.Errorf("test server config is incomplete — please check Settings")
 	}
 
-	prodRemoteFile := fmt.Sprintf("/tmp/%s_dump.sql.gz", prod.DBName)
-	testRemoteFile := fmt.Sprintf("/tmp/%s_dump.sql.gz", prod.DBName)
-	var localPath string
+	stamp := time.Now().UnixNano()
+	tmpKey    := fmt.Sprintf("/tmp/.tardis_pk_%d",     stamp)
+	tmpScript := fmt.Sprintf("/tmp/.tardis_sync_%d.sh", stamp)
 
-	defer func() {
-		if ctx.Err() != nil {
-			a.emit("test:progress", "Cancelling — cleaning up...")
-			runSSHCommandBestEffort(prod, "rm -f "+prodRemoteFile)
-			runSSHCommandBestEffort(test, "rm -f "+testRemoteFile)
-			cleanupLocal(localPath)
-			a.emit("test:cancelled", "Operation cancelled.")
-		}
-	}()
-
-	a.emit("test:progress", "Connecting to production server...")
-	prodClient, err := dialSSH(prod)
-	if err != nil {
-		return a.fail("test:error", "test:progress", "Prod SSH failed: %v", err)
-	}
-	defer prodClient.Close()
-
-	a.emit("test:progress", "Dumping production database...")
-	dumpCmd := fmt.Sprintf(
-		"mysqldump -u %s -p%s %s --single-transaction | sed '/^.*999999.*sandbox/d' | gzip > %s",
-		prod.DBUser, prod.DBPassword, prod.DBName, prodRemoteFile,
-	)
-	if err := runSSHCommand(prodClient, dumpCmd); err != nil {
-		return a.fail("test:error", "test:progress", "Dump failed: %v", err)
-	}
-
-	if ctx.Err() != nil {
-		return nil
-	}
-
-	a.emit("test:progress", "Downloading dump locally...")
-	prodSFTP, err := sftp.NewClient(prodClient, sftp.MaxConcurrentRequestsPerFile(200))
-	if err != nil {
-		return a.fail("test:error", "test:progress", "Prod SFTP session failed: %v", err)
-	}
-	defer prodSFTP.Close()
-
-	localPath, localFileName, err := localDumpPath(prod.DBName)
-	if err != nil {
-		return a.fail("test:error", "test:progress", "Could not resolve local path: %v", err)
-	}
-
-	if err := downloadFile(ctx, prodSFTP, prodRemoteFile, localPath, func(bytes, total int64) {
-		a.emitTransfer("test:transfer", TransferProgress{Bytes: bytes, Total: total})
-	}); err != nil {
-		if ctx.Err() != nil {
-			return nil
-		}
-		return a.fail("test:error", "test:progress", "Download failed: %v", err)
-	}
-	a.emit("test:progress", fmt.Sprintf("Downloaded to ~/Downloads/%s", localFileName))
-	runSSHCommand(prodClient, "rm "+prodRemoteFile)
-
-	if ctx.Err() != nil {
-		return nil
-	}
-
+	// ── Step 1: Connect to test server and upload credentials ────────────────
 	a.emit("test:progress", "Connecting to test server...")
 	testClient, err := dialSSH(test)
 	if err != nil {
@@ -695,38 +657,162 @@ func (a *App) SyncToTest() error {
 	}
 	defer testClient.Close()
 
-	a.emit("test:progress", "Uploading dump to test server...")
-	testSFTP, err := sftp.NewClient(testClient, sftp.MaxConcurrentRequestsPerFile(200))
-	if err != nil {
-		return a.fail("test:error", "test:progress", "Test SFTP session failed: %v", err)
-	}
-	defer testSFTP.Close()
-
-	if err := uploadFile(ctx, testSFTP, localPath, testRemoteFile, func(bytes, total int64) {
-		a.emitTransfer("test:transfer", TransferProgress{Bytes: bytes, Total: total})
-	}); err != nil {
-		if ctx.Err() != nil {
-			return nil
-		}
-		return a.fail("test:error", "test:progress", "Upload failed: %v", err)
-	}
-
 	if ctx.Err() != nil {
+		a.emit("test:cancelled", "Operation cancelled.")
 		return nil
 	}
 
-	a.emit("test:progress", fmt.Sprintf("Importing into '%s'...", test.DBName))
-	importCmd := fmt.Sprintf(
-		"gunzip < %s | mysql -u %s -p%s %s",
-		testRemoteFile, test.DBUser, test.DBPassword, test.DBName,
-	)
-	if err := runSSHCommand(testClient, importCmd); err != nil {
-		return a.fail("test:error", "test:progress", "Import failed: %v", err)
+	testSFTP, err := sftp.NewClient(testClient)
+	if err != nil {
+		return a.fail("test:error", "test:progress", "Test SFTP failed: %v", err)
 	}
 
-	runSSHCommand(testClient, "rm "+testRemoteFile)
-	a.emit("test:done", fmt.Sprintf("Done! '%s' imported into test server '%s'", prod.DBName, test.DBName))
+	// Build the inner SSH leg: test server → production
+	// Key auth: upload the private key temporarily to the test server.
+	// Password auth: rely on sshpass (must be installed on test server).
+	var innerSSH string
+	if prod.PrivateKey != "" {
+		keyPath := prod.PrivateKey
+		if len(keyPath) > 1 && keyPath[:2] == "~/" {
+			home, _ := os.UserHomeDir()
+			keyPath = filepath.Join(home, keyPath[2:])
+		}
+		keyData, err := os.ReadFile(keyPath)
+		if err != nil {
+			testSFTP.Close()
+			return a.fail("test:error", "test:progress", "Could not read private key: %v", err)
+		}
+		a.emit("test:progress", "Uploading SSH key to test server...")
+		kf, err := testSFTP.Create(tmpKey)
+		if err != nil {
+			testSFTP.Close()
+			return a.fail("test:error", "test:progress", "Could not create temp key on test: %v", err)
+		}
+		kf.Chmod(0600)
+		kf.Write(keyData)
+		kf.Close()
+		defer runSSHCommandBestEffort(test, "rm -f "+tmpKey)
+
+		innerSSH = fmt.Sprintf(
+			"ssh -i %s -o StrictHostKeyChecking=no -o BatchMode=yes %s@%s",
+			tmpKey, prod.SSHUser, prod.ServerIP,
+		)
+	} else {
+		// Password auth — generate a throwaway keypair on the test server,
+		// authorize it on prod (TARDIS has prod's password), use it, then clean up.
+		// No sshpass or extra software needed.
+		a.emit("test:progress", "Setting up temporary SSH key (test → prod)...")
+
+		// 1. Generate a temp ed25519 key on the test server
+		genCmd := fmt.Sprintf("ssh-keygen -t ed25519 -N '' -f %s -C tardis_temp_sync", tmpKey)
+		if err := runSSHCommand(testClient, genCmd); err != nil {
+			testSFTP.Close()
+			return a.fail("test:error", "test:progress", "Could not generate temp key on test: %v", err)
+		}
+		defer runSSHCommandBestEffort(test, fmt.Sprintf("rm -f %s %s.pub", tmpKey, tmpKey))
+
+		// 2. Read the public key back from the test server
+		pubKey, err := runSSHCommandOutput(testClient, "cat "+tmpKey+".pub")
+		if err != nil {
+			testSFTP.Close()
+			return a.fail("test:error", "test:progress", "Could not read temp public key: %v", err)
+		}
+
+		// 3. Connect to prod and authorize the temp public key
+		prodClient, err := dialSSH(prod)
+		if err != nil {
+			testSFTP.Close()
+			return a.fail("test:error", "test:progress", "Prod SSH failed: %v", err)
+		}
+		defer prodClient.Close()
+		authorizeCmd := fmt.Sprintf(
+			"mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo %s >> ~/.ssh/authorized_keys",
+			shellescape(strings.TrimSpace(pubKey)),
+		)
+		if err := runSSHCommand(prodClient, authorizeCmd); err != nil {
+			testSFTP.Close()
+			return a.fail("test:error", "test:progress", "Could not authorize temp key on prod: %v", err)
+		}
+		// Always clean up the temp key from prod's authorized_keys
+		defer runSSHCommandBestEffort(prod, "sed -i '/tardis_temp_sync/d' ~/.ssh/authorized_keys")
+
+		innerSSH = fmt.Sprintf(
+			"ssh -i %s -o StrictHostKeyChecking=no -o BatchMode=yes %s@%s",
+			tmpKey, prod.SSHUser, prod.ServerIP,
+		)
+	}
+
+	// Build the remote dump command (runs on production via the inner SSH)
+	dbPassFlag := ""
+	if prod.DBPassword != "" {
+		dbPassFlag = "-p" + prod.DBPassword
+	}
+	remoteDump := fmt.Sprintf(
+		"mysqldump -u %s %s %s --single-transaction --quick --no-tablespaces --skip-add-locks | sed '/^.*999999.*sandbox/d' | gzip",
+		prod.DBUser, dbPassFlag, prod.DBName,
+	)
+
+	// Build the local import command (runs on test server)
+	testPassFlag := ""
+	if test.DBPassword != "" {
+		testPassFlag = "-p" + test.DBPassword
+	}
+
+	// Write a shell script to the test server to avoid nested-SSH quoting problems.
+	// The script: SSH into prod, stream dump, pipe straight into mysql — LAN only.
+	// Uses bash + pipefail so a failure anywhere in the pipe (SSH auth, mysqldump)
+	// is NOT silently swallowed by mysql exiting 0 on empty input.
+	script := fmt.Sprintf(
+		"#!/bin/bash\nset -euo pipefail\n%s %s | gunzip | sed -e 's|/\\*!50017 DEFINER=`[^`]*`@`[^`]*`\\*/ ||g' -e 's|DEFINER=`[^`]*`@`[^`]*`||g' | mysql -u %s %s %s\n",
+		innerSSH,
+		shellescape(remoteDump),
+		test.DBUser,
+		testPassFlag,
+		test.DBName,
+	)
+
+	sf, err := testSFTP.Create(tmpScript)
+	if err != nil {
+		testSFTP.Close()
+		return a.fail("test:error", "test:progress", "Could not write sync script: %v", err)
+	}
+	sf.Chmod(0700)
+	sf.Write([]byte(script))
+	sf.Close()
+	testSFTP.Close()
+	defer runSSHCommandBestEffort(test, "rm -f "+tmpScript)
+
+	// ── Step 2: Run the script — data flows prod → test entirely over LAN ────
+	a.emit("test:progress", fmt.Sprintf(
+		"Streaming %s → %s directly over LAN (no local machine involved)...",
+		prod.ServerIP, test.ServerIP,
+	))
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- runSSHCommand(testClient, "/bin/sh "+tmpScript) }()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return a.fail("test:error", "test:progress", "Sync failed: %v", err)
+		}
+	case <-ctx.Done():
+		testClient.Close() // force-abort the blocking SSH session
+		a.emit("test:cancelled", "Operation cancelled.")
+		return nil
+	}
+
+	a.emit("test:done", fmt.Sprintf(
+		"Done! '%s' streamed from %s into test '%s' — LAN speed, zero local data.",
+		prod.DBName, prod.ServerIP, test.DBName,
+	))
 	return nil
+}
+
+// shellescape wraps s in single quotes and escapes any embedded single quotes,
+// making it safe to interpolate into a POSIX shell command.
+func shellescape(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // ── SyncAndImportLocal: prod → ~/Downloads → local MySQL ─────────────────────

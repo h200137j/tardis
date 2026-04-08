@@ -479,6 +479,22 @@ type ImportProgress struct {
 // writer to avoid per-line syscall overhead. countTables is done in a single pass
 // concurrently so there is no double-read of the file.
 func streamingImport(ctx context.Context, filePath, mysqlBin string, args []string, onProgress func(ImportProgress)) error {
+	// ── Raise server limits so large imports don't fail ────────────────────
+	// Equivalent to: /opt/lampp/bin/mysql -u root -e "SET GLOBAL ..."
+	// We extract -u and -p flags from args so we connect with the right user.
+	globalArgs := []string{"-e", "SET GLOBAL max_allowed_packet=536870912; SET GLOBAL wait_timeout=28800; SET GLOBAL interactive_timeout=28800;"}
+	for i, a := range args {
+		if a == "-u" && i+1 < len(args) {
+			globalArgs = append([]string{"-u", args[i+1]}, globalArgs...)
+		}
+		if strings.HasPrefix(a, "-p") && a != "-p" {
+			globalArgs = append([]string{a}, globalArgs...)
+		}
+	}
+	if pre := exec.CommandContext(ctx, mysqlBin, globalArgs...); pre.Run() != nil {
+		// best-effort — don't abort the import if this fails (e.g. user lacks SUPER)
+	}
+
 	// ── Speed flags: disable sync/redo overhead for local imports ──────────
 	speedArgs := []string{
 		"--init-command=SET SESSION foreign_key_checks=0; SET SESSION unique_checks=0; SET SESSION sql_log_bin=0; SET GLOBAL innodb_flush_log_at_trx_commit=0;",

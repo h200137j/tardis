@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
-import { SyncDatabase, SyncToTest, SyncAndImportLocal, PickFile, ImportLocal, Cancel, GetMobileQR, GetMobileURL, GetConfig, SetActiveProject } from '../../wailsjs/go/main/App'
+import { SyncDatabase, SyncToTest, SyncAndImportLocal, PickFile, ImportLocal, Cancel, GetMobileQR, GetMobileURL, GetConfig, SetActiveProject, GetVersion } from '../../wailsjs/go/main/App'
 import AnimationCanvas from './AnimationCanvas'
 import './HomeView.css'
 
@@ -114,8 +114,9 @@ export default function HomeView() {
   const [qrImg, setQrImg]               = useState('')
   const [qrUrl, setQrUrl]               = useState('')
   const [qrLoading, setQrLoading]       = useState(false)
-  const [projects, setProjects]         = useState([])
+  const [projects, setProjects]               = useState([])
   const [activeProjectId, setActiveProjectId] = useState('')
+  const [version, setVersion]                 = useState('')
 
   useEffect(() => {
     GetConfig()
@@ -125,6 +126,7 @@ export default function HomeView() {
         setActiveProjectId(cfg.active_project_id || (projs[0]?.id ?? ''))
       })
       .catch(err => console.error('GetConfig failed:', err))
+    GetVersion().then(setVersion).catch(() => {})
   }, [])
 
   const switchProject = async (id) => {
@@ -217,7 +219,10 @@ export default function HomeView() {
 
       {/* Header */}
       <header className="home-header">
-        <h1 className="home-title">TARDISddddd</h1>
+        <div className="home-title-row">
+          <h1 className="home-title">TARDIS</h1>
+          {version && <span className="home-version">{version}</span>}
+        </div>
         <p className="home-tagline">Transfer And Retrieve Database In Seconds</p>
       </header>
 

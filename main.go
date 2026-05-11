@@ -2,12 +2,25 @@ package main
 
 import (
 	"embed"
+	"os"
+	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
 )
+
+func init() {
+	// VS Code snap injects GTK paths pointing to snap-bundled modules built against
+	// Ubuntu 20.04 glibc (core20). On Ubuntu 24.04 those modules fail to load libpthread.
+	// Clear them so GTK falls back to system modules.
+	if strings.HasPrefix(os.Getenv("GTK_EXE_PREFIX"), "/snap") {
+		os.Unsetenv("GTK_EXE_PREFIX")
+		os.Unsetenv("GTK_PATH")
+		os.Unsetenv("GTK_IM_MODULE_FILE")
+	}
+}
 
 //go:embed all:frontend/dist
 var assets embed.FS

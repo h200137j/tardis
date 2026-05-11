@@ -42,6 +42,10 @@ export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
 }
 
+export function SetActiveProject(arg1) {
+  return window['go']['main']['App']['SetActiveProject'](arg1);
+}
+
 export function SyncAndImportLocal() {
   return window['go']['main']['App']['SyncAndImportLocal']();
 }

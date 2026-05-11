@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,18 +36,27 @@ type ServerConfig struct {
 
 // LocalConfig holds settings for importing into the local machine's MySQL.
 type LocalConfig struct {
-	MySQLBin string `json:"mysql_bin"`
-	DBName   string `json:"db_name"`
-	DBUser   string `json:"db_user"`
-	DBPass   string `json:"db_pass"`
-	SaveDump bool   `json:"save_dump"`
+	MySQLBin        string `json:"mysql_bin"`
+	DBName          string `json:"db_name"`
+	DBUser          string `json:"db_user"`
+	DBPass          string `json:"db_pass"`
+	SaveDump        bool   `json:"save_dump"`
+	IncrementalSync bool   `json:"incremental_sync"`
+}
+
+// Project groups production/test/local configs under a user-defined name.
+type Project struct {
+	ID         string       `json:"id"`
+	Name       string       `json:"name"`
+	Production ServerConfig `json:"production"`
+	Test       ServerConfig `json:"test"`
+	Local      LocalConfig  `json:"local"`
 }
 
 // Config is the top-level config persisted to disk.
 type Config struct {
-	Production ServerConfig `json:"production"`
-	Test       ServerConfig `json:"test"`
-	Local      LocalConfig  `json:"local"`
+	Projects        []Project `json:"projects"`
+	ActiveProjectID string    `json:"active_project_id"`
 }
 
 // TransferProgress is emitted during uploads and downloads.
@@ -68,11 +80,14 @@ func NewApp() *App { return &App{} }
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	if err := a.loadConfig(); err != nil {
-		a.config = Config{
+		p := Project{
+			ID:         "default",
+			Name:       "Default",
 			Production: ServerConfig{},
 			Test:       ServerConfig{},
 			Local:      LocalConfig{MySQLBin: "/opt/lampp/bin/mysql", DBUser: "root"},
 		}
+		a.config = Config{Projects: []Project{p}, ActiveProjectID: "default"}
 	}
 	a.mobileServer = newMobileServer(a)
 	a.mobileServer.Start()
@@ -159,12 +174,37 @@ func (a *App) loadConfig() error {
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(data, &a.config)
+	if err := json.Unmarshal(data, &a.config); err != nil {
+		return err
+	}
+	// Migrate old flat format (production/test/local at top level) → project list
+	if len(a.config.Projects) == 0 {
+		var old struct {
+			Production ServerConfig `json:"production"`
+			Test       ServerConfig `json:"test"`
+			Local      LocalConfig  `json:"local"`
+		}
+		if json.Unmarshal(data, &old) == nil {
+			p := Project{
+				ID:         "default",
+				Name:       "Default",
+				Production: old.Production,
+				Test:       old.Test,
+				Local:      old.Local,
+			}
+			a.config.Projects = []Project{p}
+			a.config.ActiveProjectID = "default"
+		}
+	}
+	if a.config.ActiveProjectID == "" && len(a.config.Projects) > 0 {
+		a.config.ActiveProjectID = a.config.Projects[0].ID
+	}
+	return nil
 }
 
 func (a *App) GetConfig() Config { return a.config }
 
-func (a *App) SaveConfig(cfg Config) error {
+func (a *App) persistConfig() error {
 	path, err := configPath()
 	if err != nil {
 		return fmt.Errorf("could not resolve config path: %w", err)
@@ -172,15 +212,43 @@ func (a *App) SaveConfig(cfg Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("could not create config directory: %w", err)
 	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	data, err := json.MarshalIndent(a.config, "", "  ")
 	if err != nil {
 		return fmt.Errorf("could not marshal config: %w", err)
 	}
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("could not write config file: %w", err)
 	}
-	a.config = cfg
 	return nil
+}
+
+func (a *App) SaveConfig(cfg Config) error {
+	a.config = cfg
+	return a.persistConfig()
+}
+
+// SetActiveProject switches the active project and persists to disk.
+func (a *App) SetActiveProject(id string) error {
+	for _, p := range a.config.Projects {
+		if p.ID == id {
+			a.config.ActiveProjectID = id
+			return a.persistConfig()
+		}
+	}
+	return fmt.Errorf("project not found: %s", id)
+}
+
+// activeProject returns the currently active project, falling back to the first.
+func (a *App) activeProject() Project {
+	for _, p := range a.config.Projects {
+		if p.ID == a.config.ActiveProjectID {
+			return p
+		}
+	}
+	if len(a.config.Projects) > 0 {
+		return a.config.Projects[0]
+	}
+	return Project{}
 }
 
 // ── Cancellation ──────────────────────────────────────────────────────────────
@@ -474,33 +542,39 @@ type ImportProgress struct {
 	Total   int    `json:"total"`
 }
 
-// streamingImport decompresses filePath and pipes it to mysql as fast as possible.
-// It scans for table markers to emit progress, but feeds MySQL via a large buffered
-// writer to avoid per-line syscall overhead. countTables is done in a single pass
-// concurrently so there is no double-read of the file.
-func streamingImport(ctx context.Context, filePath, mysqlBin string, args []string, onProgress func(ImportProgress)) error {
-	// ── Raise server limits so large imports don't fail ────────────────────
-	// Equivalent to: /opt/lampp/bin/mysql -u root -e "SET GLOBAL ..."
-	// We extract -u and -p flags from args so we connect with the right user.
-	globalArgs := []string{"-e", "SET GLOBAL max_allowed_packet=536870912; SET GLOBAL wait_timeout=28800; SET GLOBAL interactive_timeout=28800;"}
+// streamingImport decompresses filePath and pipes it into mysql.
+// onTable fires once per detected table (for log messages).
+// onBytes fires every 256 KB of compressed input read (for the progress bar).
+func streamingImport(ctx context.Context, filePath, mysqlBin string, args []string, onTable func(ImportProgress), onBytes func(int64, int64)) error {
+	// ── 1. Validate binary path early so the error is actionable ──────────
+	resolvedBin, err := exec.LookPath(mysqlBin)
+	if err != nil {
+		return fmt.Errorf("mysql binary not found at %q — check Settings > MySQL Binary Path", mysqlBin)
+	}
+
+	// ── 2. Extract auth flags before modifying args (reused for global cmds) ─
+	var authArgs []string
 	for i, a := range args {
 		if a == "-u" && i+1 < len(args) {
-			globalArgs = append([]string{"-u", args[i+1]}, globalArgs...)
+			authArgs = append(authArgs, "-u", args[i+1])
+		} else if strings.HasPrefix(a, "-p") && a != "-p" {
+			authArgs = append(authArgs, a)
 		}
-		if strings.HasPrefix(a, "-p") && a != "-p" {
-			globalArgs = append([]string{a}, globalArgs...)
-		}
-	}
-	if pre := exec.CommandContext(ctx, mysqlBin, globalArgs...); pre.Run() != nil {
-		// best-effort — don't abort the import if this fails (e.g. user lacks SUPER)
 	}
 
-	// ── Speed flags: disable sync/redo overhead for local imports ──────────
-	speedArgs := []string{
-		"--init-command=SET SESSION foreign_key_checks=0; SET SESSION unique_checks=0; SET SESSION sql_log_bin=0; SET GLOBAL innodb_flush_log_at_trx_commit=0;",
-	}
-	args = append(speedArgs, args...)
+	// ── 3. Raise server limits + disable InnoDB redo sync ─────────────────
+	globalSQL := "SET GLOBAL max_allowed_packet=536870912; SET GLOBAL wait_timeout=28800; SET GLOBAL interactive_timeout=28800; SET GLOBAL innodb_flush_log_at_trx_commit=0;"
+	exec.CommandContext(ctx, resolvedBin, append(authArgs, "-e", globalSQL)...).Run() // best-effort
 
+	// ── 4. Always restore innodb_flush_log_at_trx_commit on exit ──────────
+	defer exec.Command(resolvedBin, append(authArgs, "-e", "SET GLOBAL innodb_flush_log_at_trx_commit=1;")...).Run()
+
+	// ── 5. Session-level speed flags ──────────────────────────────────────
+	args = append([]string{
+		"--init-command=SET SESSION foreign_key_checks=0; SET SESSION unique_checks=0; SET SESSION sql_log_bin=0;",
+	}, args...)
+
+	// ── 6. Open file; wrap in progress reader for real % bar ──────────────
 	f, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("could not open file: %w", err)
@@ -508,8 +582,14 @@ func streamingImport(ctx context.Context, filePath, mysqlBin string, args []stri
 	defer f.Close()
 
 	var r io.Reader = f
+	if onBytes != nil {
+		if fi, statErr := f.Stat(); statErr == nil && fi.Size() > 0 {
+			r = &progressReader{r: f, total: fi.Size(), onBytes: onBytes}
+		}
+	}
+
 	if strings.HasSuffix(filePath, ".gz") {
-		gz, err := pgzip.NewReader(f)
+		gz, err := pgzip.NewReader(r)
 		if err != nil {
 			return fmt.Errorf("could not decompress file: %w", err)
 		}
@@ -517,17 +597,22 @@ func streamingImport(ctx context.Context, filePath, mysqlBin string, args []stri
 		r = gz
 	}
 
-	cmd := exec.CommandContext(ctx, mysqlBin, args...)
+	// ── 7. Spawn mysql; capture stderr for useful error messages ──────────
+	cmd := exec.CommandContext(ctx, resolvedBin, args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("could not open mysql stdin: %w", err)
 	}
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("could not start mysql: %w", err)
 	}
 
-	// 32 MB write buffer — MySQL gets large chunks instead of one line at a time
+	// ── 8. 32 MB write buffer; wrap entire import in one transaction ───────
 	bw := bufio.NewWriterSize(stdin, 32*1024*1024)
+	bw.WriteString("SET autocommit=0;\n")
 
 	current := 0
 	scanner := bufio.NewScanner(r)
@@ -541,17 +626,18 @@ func streamingImport(ctx context.Context, filePath, mysqlBin string, args []stri
 		}
 
 		line := scanner.Bytes()
-		lineStr := scanner.Text()
 
-		if strings.HasPrefix(lineStr, "-- Table structure for table") {
-			bw.Flush()
-			current++
-			table := lineStr
-			if i := strings.Index(lineStr, "`"); i >= 0 {
-				table = strings.ReplaceAll(lineStr[i:], "`", "")
-			}
-			if onProgress != nil {
-				onProgress(ImportProgress{Table: table, Current: current, Total: 0})
+		// Only allocate a string on comment lines to detect table boundaries
+		if len(line) > 28 && line[0] == '-' && line[1] == '-' {
+			if bytes.HasPrefix(line, []byte("-- Table structure for table")) {
+				current++
+				table := string(line)
+				if i := strings.Index(table, "`"); i >= 0 {
+					table = strings.ReplaceAll(table[i:], "`", "")
+				}
+				if onTable != nil {
+					onTable(ImportProgress{Table: table, Current: current})
+				}
 			}
 		}
 
@@ -559,13 +645,23 @@ func streamingImport(ctx context.Context, filePath, mysqlBin string, args []stri
 		bw.WriteByte('\n')
 	}
 
-	// flush remaining buffer before closing stdin
+	if err := scanner.Err(); err != nil {
+		stdin.Close()
+		cmd.Wait()
+		return fmt.Errorf("read error: %w", err)
+	}
+
+	// ── 9. Commit, flush, close ────────────────────────────────────────────
+	bw.WriteString("COMMIT;\n")
 	bw.Flush()
 	stdin.Close()
 
 	if err := cmd.Wait(); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		if msg := strings.TrimSpace(stderrBuf.String()); msg != "" {
+			return fmt.Errorf("mysql: %s", msg)
 		}
 		return fmt.Errorf("mysql exited with error: %w", err)
 	}
@@ -577,7 +673,7 @@ func streamingImport(ctx context.Context, filePath, mysqlBin string, args []stri
 
 func (a *App) SyncDatabase() error {
 	ctx := a.newOpCtx()
-	prod := a.config.Production
+	prod := a.activeProject().Production
 
 	if prod.ServerIP == "" || prod.DBName == "" {
 		return fmt.Errorf("production config is incomplete — please check Settings")
@@ -651,8 +747,9 @@ func (a *App) SyncDatabase() error {
 
 func (a *App) SyncToTest() error {
 	ctx := a.newOpCtx()
-	prod := a.config.Production
-	test := a.config.Test
+	proj := a.activeProject()
+	prod := proj.Production
+	test := proj.Test
 
 	if prod.ServerIP == "" || prod.DBName == "" {
 		return fmt.Errorf("production config is incomplete — please check Settings")
@@ -831,12 +928,131 @@ func shellescape(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// ── Incremental sync helpers ──────────────────────────────────────────────────
+
+// queryLocalMaxIDs returns {tableName → MAX(id)} for every local table that has
+// an integer 'id' column. Uses a single UNION ALL query to avoid N round-trips.
+// Returns nil on any error — callers treat nil as "do a full dump instead".
+func queryLocalMaxIDs(local LocalConfig) map[string]int64 {
+	bin := local.MySQLBin
+	if bin == "" {
+		bin = "mysql"
+	}
+	resolved, err := exec.LookPath(bin)
+	if err != nil {
+		return nil
+	}
+
+	base := []string{"-u", local.DBUser}
+	if local.DBPass != "" {
+		base = append(base, "-p"+local.DBPass)
+	}
+	base = append(base, "--batch", "--skip-column-names", local.DBName)
+
+	withSQL := func(sql string) []string {
+		dst := make([]string, len(base), len(base)+2)
+		copy(dst, base)
+		return append(dst, "-e", sql)
+	}
+
+	// Step 1: find all BASE TABLEs that have an 'id' column
+	listSQL := fmt.Sprintf(
+		"SELECT TABLE_NAME FROM information_schema.COLUMNS "+
+			"WHERE TABLE_SCHEMA='%s' AND COLUMN_NAME='id' "+
+			"AND TABLE_NAME IN (SELECT TABLE_NAME FROM information_schema.TABLES "+
+			"WHERE TABLE_SCHEMA='%s' AND TABLE_TYPE='BASE TABLE') "+
+			"ORDER BY TABLE_NAME",
+		local.DBName, local.DBName,
+	)
+	out, err := exec.Command(resolved, withSQL(listSQL)...).Output()
+	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
+		return nil
+	}
+	tables := strings.Fields(string(out))
+	if len(tables) == 0 {
+		return nil
+	}
+
+	// Step 2: UNION ALL to get MAX(id) per table in one query
+	parts := make([]string, len(tables))
+	for i, t := range tables {
+		parts[i] = fmt.Sprintf("SELECT '%s', COALESCE(MAX(id), 0) FROM `%s`", t, t)
+	}
+	out, err = exec.Command(resolved, withSQL(strings.Join(parts, " UNION ALL "))...).Output()
+	if err != nil {
+		return nil
+	}
+
+	maxIDs := make(map[string]int64, len(tables))
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.SplitN(strings.TrimSpace(line), "\t", 2)
+		if len(fields) != 2 {
+			continue
+		}
+		n, err := strconv.ParseInt(strings.TrimSpace(fields[1]), 10, 64)
+		if err != nil {
+			continue
+		}
+		maxIDs[strings.TrimSpace(fields[0])] = n
+	}
+	return maxIDs
+}
+
+// buildIncrementalDumpCmd builds a shell command (safe to pass to SSH) that:
+//  1. Dumps schema only  (handles new tables / column additions)
+//  2. For each tracked table: dumps only rows with id > local max  (--replace so prod wins)
+//  3. Full-replaces all remaining tables  (no 'id', or tables not yet in local DB)
+//
+// Result is piped through the sandbox-row filter and gzipped into remoteFile.
+func buildIncrementalDumpCmd(prod ServerConfig, maxIDs map[string]int64, remoteFile string) string {
+	passFlag := ""
+	if prod.DBPassword != "" {
+		passFlag = "-p" + prod.DBPassword
+	}
+	flags := "--single-transaction --quick --no-tablespaces --skip-add-locks"
+
+	base := fmt.Sprintf("mysqldump -u %s %s %s %s", prod.DBUser, passFlag, prod.DBName, flags)
+
+	tables := make([]string, 0, len(maxIDs))
+	for t := range maxIDs {
+		tables = append(tables, t)
+	}
+	sort.Strings(tables)
+
+	var cmds []string
+
+	// 1. Schema only
+	cmds = append(cmds, base+" --no-data")
+
+	// 2. Incremental per-table dumps
+	var ignoreFlags []string
+	for _, t := range tables {
+		where := shellescape(fmt.Sprintf("id > %d", maxIDs[t]))
+		cmds = append(cmds, fmt.Sprintf(
+			"mysqldump -u %s %s %s %s %s --where=%s --no-create-info --replace",
+			prod.DBUser, passFlag, prod.DBName, flags, t, where,
+		))
+		ignoreFlags = append(ignoreFlags, fmt.Sprintf("--ignore-table=%s.%s", prod.DBName, t))
+	}
+
+	// 3. Full data for non-incremental tables
+	rest := base + " --no-create-info --replace"
+	if len(ignoreFlags) > 0 {
+		rest += " " + strings.Join(ignoreFlags, " ")
+	}
+	cmds = append(cmds, rest)
+
+	inner := "{ " + strings.Join(cmds, "; ") + "; }"
+	return fmt.Sprintf("%s | sed '/^.*999999.*sandbox/d' | gzip > %s", inner, remoteFile)
+}
+
 // ── SyncAndImportLocal: prod → ~/Downloads → local MySQL ─────────────────────
 
 func (a *App) SyncAndImportLocal() error {
 	ctx := a.newOpCtx()
-	prod := a.config.Production
-	local := a.config.Local
+	proj := a.activeProject()
+	prod := proj.Production
+	local := proj.Local
 
 	if prod.ServerIP == "" || prod.DBName == "" {
 		return fmt.Errorf("production config is incomplete — please check Settings")
@@ -867,11 +1083,21 @@ func (a *App) SyncAndImportLocal() error {
 	defer client.Close()
 
 	a.emit("pull:phase", "dumping")
-	a.emit("pull:progress", "Dumping database on server...")
-	dumpCmd := fmt.Sprintf(
-		"mysqldump -u %s -p%s %s --single-transaction --quick --no-tablespaces --skip-add-locks | sed '/^.*999999.*sandbox/d' | gzip > %s",
-		prod.DBUser, prod.DBPassword, prod.DBName, remoteFile,
-	)
+
+	var dumpCmd string
+	if local.IncrementalSync {
+		a.emit("pull:progress", "Querying local database for sync state...")
+		maxIDs := queryLocalMaxIDs(local)
+		a.emit("pull:progress", fmt.Sprintf("Incremental dump: %d tables tracked, fetching new rows only...", len(maxIDs)))
+		dumpCmd = buildIncrementalDumpCmd(prod, maxIDs, remoteFile)
+	} else {
+		a.emit("pull:progress", "Dumping database on server...")
+		dumpCmd = fmt.Sprintf(
+			"mysqldump -u %s -p%s %s --single-transaction --quick --no-tablespaces --skip-add-locks | sed '/^.*999999.*sandbox/d' | gzip > %s",
+			prod.DBUser, prod.DBPassword, prod.DBName, remoteFile,
+		)
+	}
+
 	if err := runSSHCommand(client, dumpCmd); err != nil {
 		return a.fail("pull:error", "pull:progress", "Dump failed: %v", err)
 	}
@@ -920,10 +1146,14 @@ func (a *App) SyncAndImportLocal() error {
 	}
 	mysqlArgs = append(mysqlArgs, local.DBName)
 
-	if err := streamingImport(ctx, localPath, mysqlBin, mysqlArgs, func(p ImportProgress) {
-		a.emit("pull:progress", fmt.Sprintf("Importing table %s (%d)...", p.Table, p.Current))
-		a.emitTransfer("pull:transfer", TransferProgress{Bytes: int64(p.Current), Total: 0})
-	}); err != nil {
+	if err := streamingImport(ctx, localPath, mysqlBin, mysqlArgs,
+		func(p ImportProgress) {
+			a.emit("pull:progress", fmt.Sprintf("Importing table %s (%d)...", p.Table, p.Current))
+		},
+		func(read, total int64) {
+			a.emitTransfer("pull:transfer", TransferProgress{Bytes: read, Total: total})
+		},
+	); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -953,7 +1183,7 @@ func (a *App) PickFile() (string, error) {
 
 func (a *App) ImportLocal(filePath string) error {
 	ctx := a.newOpCtx()
-	local := a.config.Local
+	local := a.activeProject().Local
 
 	if filePath == "" {
 		return fmt.Errorf("no file selected")
@@ -975,10 +1205,14 @@ func (a *App) ImportLocal(filePath string) error {
 	}
 	args = append(args, local.DBName)
 
-	if err := streamingImport(ctx, filePath, mysqlBin, args, func(p ImportProgress) {
-		a.emit("import:progress", fmt.Sprintf("Importing table %s (%d)...", p.Table, p.Current))
-		a.emitTransfer("import:transfer", TransferProgress{Bytes: int64(p.Current), Total: 0})
-	}); err != nil {
+	if err := streamingImport(ctx, filePath, mysqlBin, args,
+		func(p ImportProgress) {
+			a.emit("import:progress", fmt.Sprintf("Importing table %s (%d)...", p.Table, p.Current))
+		},
+		func(read, total int64) {
+			a.emitTransfer("import:transfer", TransferProgress{Bytes: read, Total: total})
+		},
+	); err != nil {
 		if ctx.Err() != nil {
 			a.emit("import:cancelled", "Import cancelled.")
 			return nil

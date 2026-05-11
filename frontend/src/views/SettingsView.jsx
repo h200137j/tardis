@@ -12,34 +12,55 @@ const EMPTY_SERVER = {
   db_password: '',
 }
 
-const DEFAULT = {
+const DEFAULT_LOCAL = {
+  mysql_bin:        '/opt/lampp/bin/mysql',
+  db_name:          '',
+  db_user:          'root',
+  db_pass:          '',
+  save_dump:        false,
+  incremental_sync: false,
+}
+
+const newProject = (id, name = 'New Project') => ({
+  id,
+  name,
   production: { ...EMPTY_SERVER },
   test:       { ...EMPTY_SERVER },
-  local: {
-    mysql_bin: '/opt/lampp/bin/mysql',
-    db_name:   '',
-    db_user:   'root',
-    db_pass:   '',
-    save_dump: false,
-  },
+  local:      { ...DEFAULT_LOCAL },
+})
+
+const DEFAULT_FORM = {
+  projects: [newProject('default', 'Default')],
+  active_project_id: 'default',
 }
 
 export default function SettingsView() {
-  const [form, setForm]       = useState(DEFAULT)
-  const [saved, setSaved]     = useState(false)
-  const [error, setError]     = useState('')
-  const [loading, setLoading] = useState(true)
-  const [qr, setQr]           = useState('')
+  const [form, setForm]           = useState(DEFAULT_FORM)
+  const [selectedIdx, setSelectedIdx] = useState(0)
+  const [saved, setSaved]         = useState(false)
+  const [error, setError]         = useState('')
+  const [loading, setLoading]     = useState(true)
+  const [qr, setQr]               = useState('')
   const [mobileUrl, setMobileUrl] = useState('')
   const [qrVisible, setQrVisible] = useState(false)
 
   useEffect(() => {
     GetConfig()
-      .then(cfg => setForm({
-        production: { ...EMPTY_SERVER, ...cfg.production },
-        test:       { ...EMPTY_SERVER, ...cfg.test },
-        local:      { ...DEFAULT.local, ...cfg.local },
-      }))
+      .then(cfg => {
+        if (cfg.projects && cfg.projects.length > 0) {
+          const projects = cfg.projects.map(p => ({
+            id:         p.id || Date.now().toString(36),
+            name:       p.name || 'Unnamed',
+            production: { ...EMPTY_SERVER, ...(p.production || {}) },
+            test:       { ...EMPTY_SERVER, ...(p.test || {}) },
+            local:      { ...DEFAULT_LOCAL, ...(p.local || {}) },
+          }))
+          const active_project_id = cfg.active_project_id || projects[0].id
+          setForm({ projects, active_project_id })
+          const idx = projects.findIndex(p => p.id === active_project_id)
+          setSelectedIdx(idx >= 0 ? idx : 0)
+        }
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -56,18 +77,47 @@ export default function SettingsView() {
     }
   }
 
-  const set = (server, key, val) =>
-    setForm(f => ({ ...f, [server]: { ...f[server], [key]: val } }))
+  // Edit a field in the selected project's section (production / test / local)
+  const set = (section, key, val) =>
+    setForm(f => ({
+      ...f,
+      projects: f.projects.map((p, i) =>
+        i === selectedIdx ? { ...p, [section]: { ...p[section], [key]: val } } : p
+      ),
+    }))
+
+  const setProjectName = (name) =>
+    setForm(f => ({
+      ...f,
+      projects: f.projects.map((p, i) => i === selectedIdx ? { ...p, name } : p),
+    }))
+
+  const addProject = () => {
+    const id  = Date.now().toString(36)
+    const idx = form.projects.length
+    setForm(f => ({ ...f, projects: [...f.projects, newProject(id)] }))
+    setSelectedIdx(idx)
+  }
+
+  const deleteProject = () => {
+    if (form.projects.length <= 1) return
+    const deletedId = form.projects[selectedIdx].id
+    setForm(f => {
+      const projects = f.projects.filter((_, i) => i !== selectedIdx)
+      const active_project_id = f.active_project_id === deletedId
+        ? projects[0].id
+        : f.active_project_id
+      return { ...f, projects, active_project_id }
+    })
+    setSelectedIdx(prev => Math.max(0, prev - 1))
+  }
+
   const handleSave = async e => {
     e.preventDefault()
     setError('')
     setSaved(false)
     try {
-      await SaveConfig({
-        production: { ...form.production },
-        test:       { ...form.test },
-        local:      { ...form.local },
-      })
+      await SaveConfig(form)
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (err) {
@@ -77,22 +127,60 @@ export default function SettingsView() {
 
   if (loading) return <div className="settings-loading">Loading config...</div>
 
+  const proj = form.projects[selectedIdx] ?? form.projects[0]
+
   return (
     <div className="settings">
       <h2 className="settings-title">Settings</h2>
 
-
       <form className="settings-form" onSubmit={handleSave} noValidate>
+
+        {/* Project tabs */}
+        <div className="project-tabs-row">
+          <div className="project-tabs">
+            {form.projects.map((p, i) => (
+              <button
+                key={p.id}
+                type="button"
+                className={`project-tab ${i === selectedIdx ? 'active' : ''}`}
+                onClick={() => setSelectedIdx(i)}
+              >
+                {p.name}
+              </button>
+            ))}
+            <button type="button" className="project-tab-add" onClick={addProject} title="Add project">+</button>
+          </div>
+        </div>
+
+        {/* Selected project name + delete */}
+        <div className="project-name-row">
+          <input
+            className="project-name-input"
+            type="text"
+            value={proj.name}
+            onChange={e => setProjectName(e.target.value)}
+            placeholder="Project name"
+          />
+          <button
+            type="button"
+            className="btn-delete-project"
+            onClick={deleteProject}
+            disabled={form.projects.length <= 1}
+            title="Delete project"
+          >
+            Delete
+          </button>
+        </div>
 
         <ServerFieldset
           legend="🟢 Production Server"
-          values={form.production}
+          values={proj.production}
           onChange={(k, v) => set('production', k, v)}
         />
 
         <ServerFieldset
           legend="🧪 Test Server"
-          values={form.test}
+          values={proj.test}
           onChange={(k, v) => set('test', k, v)}
         />
 
@@ -102,17 +190,17 @@ export default function SettingsView() {
             <div className="fieldset-col">
               <p className="col-label">MySQL</p>
               <Field label="MySQL Binary Path" hint="e.g. /opt/lampp/bin/mysql or just 'mysql'">
-                <input type="text" value={form.local.mysql_bin}
+                <input type="text" value={proj.local.mysql_bin}
                   onChange={e => set('local', 'mysql_bin', e.target.value)}
                   placeholder="/opt/lampp/bin/mysql" />
               </Field>
               <Field label="Database User">
-                <input type="text" value={form.local.db_user}
+                <input type="text" value={proj.local.db_user}
                   onChange={e => set('local', 'db_user', e.target.value)}
                   placeholder="root" />
               </Field>
               <Field label="Database Password" hint="Leave blank if no password">
-                <input type="password" value={form.local.db_pass}
+                <PasswordInput value={proj.local.db_pass}
                   onChange={e => set('local', 'db_pass', e.target.value)}
                   autoComplete="current-password" />
               </Field>
@@ -120,14 +208,21 @@ export default function SettingsView() {
             <div className="fieldset-col">
               <p className="col-label">Database</p>
               <Field label="Local Database Name" required>
-                <input type="text" value={form.local.db_name}
+                <input type="text" value={proj.local.db_name}
                   onChange={e => set('local', 'db_name', e.target.value)}
                   placeholder="my_local_db" />
               </Field>
               <Field label="Save dump to ~/Downloads" hint="Keep a .sql.gz copy after import">
                 <label className="toggle">
-                  <input type="checkbox" checked={!!form.local.save_dump}
+                  <input type="checkbox" checked={!!proj.local.save_dump}
                     onChange={e => set('local', 'save_dump', e.target.checked)} />
+                  <span className="toggle-track"><span className="toggle-thumb" /></span>
+                </label>
+              </Field>
+              <Field label="Incremental sync" hint="Only pull new rows (id > local max) — prod wins on conflict. Skips deletes.">
+                <label className="toggle">
+                  <input type="checkbox" checked={!!proj.local.incremental_sync}
+                    onChange={e => set('local', 'incremental_sync', e.target.checked)} />
                   <span className="toggle-track"><span className="toggle-thumb" /></span>
                 </label>
               </Field>
@@ -188,7 +283,7 @@ function ServerFieldset({ legend, values, onChange }) {
           </Field>
 
           <Field label="SSH Password" hint="Leave blank if using a private key">
-            <input type="password" value={values.ssh_password}
+            <PasswordInput value={values.ssh_password}
               onChange={e => onChange('ssh_password', e.target.value)}
               autoComplete="current-password" />
           </Field>
@@ -216,13 +311,46 @@ function ServerFieldset({ legend, values, onChange }) {
           </Field>
 
           <Field label="Database Password">
-            <input type="password" value={values.db_password}
+            <PasswordInput value={values.db_password}
               onChange={e => onChange('db_password', e.target.value)}
               autoComplete="current-password" />
           </Field>
         </div>
       </div>
     </fieldset>
+  )
+}
+
+function PasswordInput({ value, onChange, autoComplete }) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="pw-wrap">
+      <input
+        type={show ? 'text' : 'password'}
+        value={value}
+        onChange={onChange}
+        autoComplete={autoComplete}
+      />
+      <button
+        type="button"
+        className="pw-toggle"
+        onClick={() => setShow(s => !s)}
+        aria-label={show ? 'Hide password' : 'Show password'}
+      >
+        {show ? (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/>
+            <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/>
+            <line x1="1" y1="1" x2="23" y2="23"/>
+          </svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        )}
+      </button>
+    </div>
   )
 }
 

@@ -22,6 +22,8 @@ export function PickFile():Promise<string>;
 
 export function SaveConfig(arg1:main.Config):Promise<void>;
 
+export function SetActiveProject(arg1:string):Promise<void>;
+
 export function SyncAndImportLocal():Promise<void>;
 
 export function SyncDatabase():Promise<void>;

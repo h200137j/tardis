@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { EventsOn } from '../../wailsjs/runtime/runtime'
-import { SyncDatabase, SyncToTest, SyncAndImportLocal, PickFile, ImportLocal, Cancel, GetMobileQR, GetMobileURL } from '../../wailsjs/go/main/App'
+import { SyncDatabase, SyncToTest, SyncAndImportLocal, PickFile, ImportLocal, Cancel, GetMobileQR, GetMobileURL, GetConfig, SetActiveProject } from '../../wailsjs/go/main/App'
 import AnimationCanvas from './AnimationCanvas'
 import './HomeView.css'
 
@@ -18,16 +18,16 @@ function fmtDuration(ms) {
 }
 
 function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transferEvent, phaseEvent, fn, animCountRef }) {
-  const [status, setStatus]     = useState(STATUS.IDLE)
-  const [logs, setLogs]         = useState([])
-  const [transfer, setTransfer] = useState(null)
-  const [elapsed, setElapsed]   = useState(0)
+  const [status, setStatus]       = useState(STATUS.IDLE)
+  const [logs, setLogs]           = useState([])
+  const [transfer, setTransfer]   = useState(null)
+  const [elapsed, setElapsed]     = useState(0)
   const [totalTime, setTotalTime] = useState(null)
   const [animIndex, setAnimIndex] = useState(0)
-  const [phase, setPhase]       = useState('idle')
-  const logEndRef               = useRef(null)
-  const startRef                = useRef(null)
-  const timerRef                = useRef(null)
+  const [phase, setPhase]         = useState('idle')
+  const logEndRef                 = useRef(null)
+  const startRef                  = useRef(null)
+  const timerRef                  = useRef(null)
 
   const addLog = useCallback((text, type = 'info') => {
     const ts = new Date().toLocaleTimeString()
@@ -110,10 +110,30 @@ function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transfe
 
 export default function HomeView() {
   const animCountRef = useRef(0)
-  const [qrOpen, setQrOpen]     = useState(false)
-  const [qrImg, setQrImg]       = useState('')
-  const [qrUrl, setQrUrl]       = useState('')
-  const [qrLoading, setQrLoading] = useState(false)
+  const [qrOpen, setQrOpen]             = useState(false)
+  const [qrImg, setQrImg]               = useState('')
+  const [qrUrl, setQrUrl]               = useState('')
+  const [qrLoading, setQrLoading]       = useState(false)
+  const [projects, setProjects]         = useState([])
+  const [activeProjectId, setActiveProjectId] = useState('')
+
+  useEffect(() => {
+    GetConfig()
+      .then(cfg => {
+        const projs = cfg.projects || []
+        setProjects(projs)
+        setActiveProjectId(cfg.active_project_id || (projs[0]?.id ?? ''))
+      })
+      .catch(err => console.error('GetConfig failed:', err))
+  }, [])
+
+  const switchProject = async (id) => {
+    if (anyBusy) return
+    try {
+      await SetActiveProject(id)
+      setActiveProjectId(id)
+    } catch (_) {}
+  }
 
   const toggleQR = async () => {
     if (qrOpen) { setQrOpen(false); return }
@@ -184,53 +204,122 @@ export default function HomeView() {
     ?? [importSync, pull, test, prod].find(s => s.logs.length > 0)
     ?? prod
 
+  const pullLabel = pull.status === STATUS.DONE      ? '✓ Run Again'
+    : pull.status === STATUS.ERROR     ? '↺ Retry'
+    : pull.status === STATUS.CANCELLED ? '↺ Try Again'
+    : 'Pull & Import Local'
+
+  const activeProject = projects.find(p => p.id === activeProjectId)
+  const projectPrefix = activeProject?.name ? `${activeProject.name}: ` : ''
+
   return (
     <div className="home">
-      <div className="hero">
-        {/* floating db icon */}
-        <h1 className="hero-title">Tardis</h1>
 
-        {/* secondary ops row */}
-        <div className="btn-row">
-          <SyncButton label="⬇ Pull from Production" busyLabel="Pulling..."  status={prod.status} disabled={anyBusy} onClick={prod.run} variant="primary" />
-          <SyncButton label="⬆ Push to Test Server"  busyLabel="Pushing..."  status={test.status} disabled={anyBusy} onClick={test.run} variant="purple" />
+      {/* Header */}
+      <header className="home-header">
+        <h1 className="home-title">TARDISddddd</h1>
+        <p className="home-tagline">Transfer And Retrieve Database In Seconds</p>
+      </header>
+
+      {/* Project selector — shown when more than one project exists */}
+      {projects.length > 1 && (
+        <div className="project-bar">
+          <span className="project-bar-label">Project</span>
+          {projects.map(p => (
+            <button
+              key={p.id}
+              className={`project-pill ${p.id === activeProjectId ? 'active' : ''}`}
+              onClick={() => switchProject(p.id)}
+              disabled={anyBusy}
+            >
+              {p.name}
+            </button>
+          ))}
         </div>
+      )}
 
-        {/* Primary CTA */}
-        <div className="cta-primary">
-          <button
-            className={`cta-primary-btn ${pull.status === STATUS.RUNNING ? 'busy' : ''} ${pull.status === STATUS.ERROR ? 'errored' : ''}`}
-            onClick={pull.run}
-            disabled={anyBusy}
-          >
-            {pull.status === STATUS.RUNNING ? (
-              <span className="cta-label"><span className="spinner" /><span className="cta-label-text"><span className="cta-label-main">Working...</span></span></span>
-            ) : (
-              <span className="cta-label">
-                <span className="cta-label-icon">⬇</span>
-                <span className="cta-label-text">
-                  <span className="cta-label-main">
-                    {pull.status === STATUS.DONE ? '✓ Run Again' : pull.status === STATUS.ERROR ? '↺ Retry' : pull.status === STATUS.CANCELLED ? '↺ Try Again' : 'Pull & Import Local'}
-                  </span>
-                  <span className="cta-label-sub">production → local MySQL</span>
-                </span>
-              </span>
-            )}
-          </button>
+      {/* Primary CTA */}
+      <button
+        className={`cta-btn ${pull.status === STATUS.RUNNING ? 'busy' : ''} ${pull.status === STATUS.ERROR ? 'errored' : ''}`}
+        onClick={pull.run}
+        disabled={anyBusy}
+      >
+        {pull.status === STATUS.RUNNING ? (
+          <span className="cta-inner">
+            <span className="spinner" />
+            <span className="cta-main">Working...</span>
+          </span>
+        ) : (
+          <span className="cta-inner">
+            <span className="cta-arrow">⬇</span>
+            <span className="cta-text">
+              <span className="cta-main">{pullLabel}</span>
+              <span className="cta-sub">{projectPrefix}production → local MySQL</span>
+            </span>
+          </span>
+        )}
+      </button>
+
+      {/* Secondary action grid */}
+      <div className="action-grid">
+        <ActionCard
+          icon="⬇"
+          title="Pull from Production"
+          sub="Dump & download only"
+          busyLabel="Pulling..."
+          status={prod.status}
+          disabled={anyBusy}
+          onClick={prod.run}
+        />
+        <ActionCard
+          icon="⬆"
+          title="Push to Test Server"
+          sub="Sync prod → test DB"
+          busyLabel="Pushing..."
+          status={test.status}
+          disabled={anyBusy}
+          onClick={test.run}
+        />
+      </div>
+
+      {/* Import local */}
+      <div className="import-row">
+        <div className="import-left">
+          <span className="import-emoji">💻</span>
+          <div>
+            <p className="import-title">Import Local File</p>
+            <p className="import-sub">Select a <code>.sql</code> or <code>.sql.gz</code> dump</p>
+          </div>
         </div>
+        <button
+          className={`import-btn ${importSync.status === STATUS.RUNNING ? 'busy' : ''} ${importSync.status === STATUS.ERROR ? 'errored' : ''}`}
+          onClick={handlePickAndImport}
+          disabled={anyBusy}
+        >
+          {importSync.status === STATUS.RUNNING    ? <><span className="spinner" /> Importing...</>
+           : importSync.status === STATUS.DONE     ? '✓ Import Another'
+           : importSync.status === STATUS.ERROR    ? '↺ Retry'
+           : importSync.status === STATUS.CANCELLED ? '↺ Try Again'
+           : '📂 Select File'}
+        </button>
+      </div>
 
+      {/* Controls row */}
+      <div className="controls-row">
         {anyBusy && (
           <button className="cancel-btn" onClick={() => Cancel()}>✕ Cancel</button>
         )}
-
-        {/* Mobile remote pill */}
-        <button className={`mobile-pill ${qrOpen ? 'active' : ''}`} onClick={toggleQR} disabled={qrLoading}>
-          <span className="mobile-pill-icon">{qrLoading ? '⏳' : '📱'}</span>
+        <button
+          className={`mobile-pill ${qrOpen ? 'active' : ''}`}
+          onClick={toggleQR}
+          disabled={qrLoading}
+        >
+          <span>{qrLoading ? '⏳' : '📱'}</span>
           <span>{qrOpen ? 'Hide Remote' : 'Mobile Remote'}</span>
         </button>
       </div>
 
-      {/* QR panel — slides in below hero */}
+      {/* QR panel */}
       {qrOpen && qrImg && (
         <div className="qr-panel">
           <div className="qr-panel-inner">
@@ -247,32 +336,37 @@ export default function HomeView() {
         </div>
       )}
 
-      {/* Import card */}
-      <div className="import-card">
-        <div className="import-card-left">
-          <span className="import-icon">💻</span>
-          <div>
-            <p className="import-title">Import to Local</p>
-            <p className="import-desc">Select a <code>.sql</code> or <code>.sql.gz</code> file to import into your local database.</p>
-          </div>
-        </div>
-        <button
-          className={`sync-btn sync-btn--green ${importSync.status === STATUS.RUNNING ? 'busy' : ''} ${importSync.status === STATUS.ERROR ? 'errored' : ''}`}
-          onClick={handlePickAndImport}
-          disabled={anyBusy}
-        >
-          {importSync.status === STATUS.RUNNING    ? <><span className="spinner" />Importing...</>
-           : importSync.status === STATUS.DONE      ? '✓ Import Another'
-           : importSync.status === STATUS.ERROR     ? '↺ Retry'
-           : importSync.status === STATUS.CANCELLED ? '↺ Try Again'
-           : '📂 Select & Import'}
-        </button>
-      </div>
-
+      {/* Progress */}
       {active.logs.length > 0 && (
         <ProgressPanel sync={active} onClear={active.clear} />
       )}
+
     </div>
+  )
+}
+
+function ActionCard({ icon, title, sub, busyLabel, status, disabled, onClick }) {
+  const isBusy = status === STATUS.RUNNING
+  const label = isBusy          ? busyLabel
+    : status === STATUS.DONE    ? '✓ Done'
+    : status === STATUS.ERROR   ? '↺ Retry'
+    : status === STATUS.CANCELLED ? '↺ Try Again'
+    : title
+
+  return (
+    <button
+      className={`action-card ${isBusy ? 'busy' : ''} ${status === STATUS.ERROR ? 'errored' : ''}`}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      <span className="action-card-icon">
+        {isBusy ? <span className="spinner" /> : icon}
+      </span>
+      <span className="action-card-body">
+        <span className="action-card-title">{label}</span>
+        <span className="action-card-sub">{sub}</span>
+      </span>
+    </button>
   )
 }
 
@@ -295,9 +389,7 @@ function ProgressPanel({ sync, onClear }) {
       <div className="progress-panel-header">
         <div className="progress-status-row">
           <StatusDot status={status} />
-          <span className="progress-current-step">
-            {lastLog?.text ?? ''}
-          </span>
+          <span className="progress-current-step">{lastLog?.text ?? ''}</span>
         </div>
         <div className="progress-meta">
           {isRunning && (
@@ -319,7 +411,6 @@ function ProgressPanel({ sync, onClear }) {
         />
       )}
 
-      {/* Transfer / import progress bar */}
       {transfer && (transfer.total > 0 || transfer.bytes > 0) && (
         <div className="transfer-section">
           <div className="transfer-info">
@@ -346,14 +437,12 @@ function ProgressPanel({ sync, onClear }) {
         </div>
       )}
 
-      {/* Indeterminate bar when running but no transfer yet */}
       {isRunning && !transfer && (
         <div className="progress-bar-track">
           <div className="progress-bar-indeterminate" />
         </div>
       )}
 
-      {/* Log */}
       <div className="log-body" role="log" aria-live="polite">
         {logs.map((entry, i) => (
           <div key={i} className={`log-line log-${entry.type}`}>
@@ -369,24 +458,4 @@ function ProgressPanel({ sync, onClear }) {
 
 function StatusDot({ status }) {
   return <span className={`status-dot status-dot--${status}`} aria-hidden="true" />
-}
-
-function SyncButton({ label, busyLabel, status, disabled, onClick, variant }) {
-  const isBusy = status === STATUS.RUNNING
-  const btnLabel = isBusy
-    ? <><span className="spinner" aria-hidden="true" />{busyLabel}</>
-    : status === STATUS.DONE      ? '✓ Run Again'
-    : status === STATUS.ERROR     ? '↺ Retry'
-    : status === STATUS.CANCELLED ? '↺ Try Again'
-    : label
-
-  return (
-    <button
-      className={`sync-btn sync-btn--${variant} ${isBusy ? 'busy' : ''} ${status === STATUS.ERROR ? 'errored' : ''}`}
-      onClick={onClick}
-      disabled={disabled}
-    >
-      {btnLabel}
-    </button>
-  )
 }

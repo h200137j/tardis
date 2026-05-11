@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -5,36 +7,61 @@
 }
 
 :root {
-  --bg:        #0d0d12;
-  --surface:   #16161f;
-  --surface2:  #1e1e2a;
-  --border:    #2a2a3a;
-  --accent:    #4f8ef7;
-  --accent-h:  #6aa3ff;
-  --danger:    #f75f5f;
-  --success:   #4fcf8e;
-  --warning:   #f7c94f;
-  --purple:    #9b6dff;
-  --text:      #e8e8f0;
-  --text-muted:#7a7a9a;
-  --radius:    10px;
-  --font:      'Inter', 'Segoe UI', system-ui, sans-serif;
+  /* ── DAW Waveform Design System ── */
+  --color-primary:   #E5E9EC;
+  --color-secondary: #6F7C88;
+  --color-tertiary:  #3DD6B5;
+  --color-neutral:   #0A0E12;
+  --color-surface:   #11161C;
+
+  /* Derived tokens */
+  --bg:           #0A0E12;
+  --surface:      #11161C;
+  --surface2:     #161E28;
+  --surface3:     #1C2535;
+  --border:       rgba(111, 124, 136, 0.14);
+  --border-strong: rgba(111, 124, 136, 0.28);
+
+  --accent:       #3DD6B5;
+  --accent-dim:   rgba(61, 214, 181, 0.1);
+  --accent-glow:  rgba(61, 214, 181, 0.25);
+  --accent-h:     #5AEAC8;
+  --danger:       #E55454;
+  --danger-dim:   rgba(229, 84, 84, 0.1);
+  --success:      #3DD6B5;
+  --warning:      #DFA030;
+
+  --text:         #E5E9EC;
+  --text-muted:   #6F7C88;
+  --text-dim:     #3D4D5C;
+
+  --radius-sm:    3px;
+  --radius-md:    6px;
+  --radius-lg:    10px;
+  --radius:       var(--radius-lg);
+
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body:    'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
+  --font:         var(--font-body);
 }
 
 html, body, #root {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font);
+  font-family: var(--font-body);
   font-size: 14px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 button {
   cursor: pointer;
-  font-family: var(--font);
+  font-family: var(--font-body);
 }
 
 input {
-  font-family: var(--font);
+  font-family: var(--font-body);
 }

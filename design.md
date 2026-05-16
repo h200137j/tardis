@@ -1,36 +1,37 @@
 ---
 version: alpha
-name: DAW Waveform
-description: Audio-production UI: waveform teal, signal red, rack black.
+name: Neobank Mint
+description: Fresh mint, generous gutters, calm money.
 colors:
-  primary: "#E5E9EC"
-  secondary: "#6F7C88"
-  tertiary: "#3DD6B5"
-  neutral: "#0A0E12"
-  surface: "#11161C"
-  on-primary: "#0A0E12"
+  primary: "#0D3B2E"
+  secondary: "#6B8679"
+  tertiary: "#28C76F"
+  neutral: "#F3FAF5"
+  surface: "#FFFFFF"
+  on-primary: "#FFFFFF"
 typography:
   display:
-    fontFamily: Space Grotesk
-    fontSize: 3.5rem
-    fontWeight: 600
-    letterSpacing: "-0.025em"
+    fontFamily: Manrope
+    fontSize: 3.75rem
+    fontWeight: 700
+    letterSpacing: "-0.03em"
   h1:
-    fontFamily: Space Grotesk
-    fontSize: 1.85rem
-    fontWeight: 600
+    fontFamily: Manrope
+    fontSize: 2rem
+    fontWeight: 700
   body:
-    fontFamily: Inter
-    fontSize: 0.92rem
+    fontFamily: Manrope
+    fontSize: 0.95rem
     lineHeight: 1.55
   label:
-    fontFamily: JetBrains Mono
-    fontSize: 0.7rem
+    fontFamily: Manrope
+    fontSize: 0.72rem
+    fontWeight: 600
     letterSpacing: "0.04em"
 rounded:
-  sm: 3px
-  md: 6px
-  lg: 10px
+  sm: 6px
+  md: 12px
+  lg: 20px
 spacing:
   sm: 8px
   md: 16px
@@ -49,23 +50,23 @@ components:
 ---
 ## Overview
 
-A DAW-style palette for audio tools: deep rack black, waveform teal, signal-red clip warnings.
+A challenger-bank system that feels like a Sunday morning.
 
 ## Colors
 
 The palette is built around high-contrast neutrals and a single accent that drives interaction.
 
-- **Primary (`#E5E9EC`):** Headlines and core text.
-- **Secondary (`#6F7C88`):** Borders, captions, and metadata.
-- **Tertiary (`#3DD6B5`):** The sole driver for interaction. Reserve it.
-- **Neutral (`#0A0E12`):** The page foundation.
+- **Primary (`#0D3B2E`):** Headlines and core text.
+- **Secondary (`#6B8679`):** Borders, captions, and metadata.
+- **Tertiary (`#28C76F`):** The sole driver for interaction. Reserve it.
+- **Neutral (`#F3FAF5`):** The page foundation.
 
 ## Typography
 
-- **display:** Space Grotesk 3.5rem
-- **h1:** Space Grotesk 1.85rem
-- **body:** Inter 0.92rem
-- **label:** JetBrains Mono 0.7rem
+- **display:** Manrope 3.75rem
+- **h1:** Manrope 2rem
+- **body:** Manrope 0.95rem
+- **label:** Manrope 0.72rem
 
 ## Do's and Don'ts
 

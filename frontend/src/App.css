@@ -17,14 +17,14 @@
   align-items: center;
   height: 40px;
   padding: 0 6px 0 16px;
-  background: rgba(17, 22, 28, 0.92);
-  border: 1px solid rgba(111, 124, 136, 0.22);
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(107, 134, 121, 0.18);
   border-radius: 99px;
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.5),
-    0 1px 0 rgba(255, 255, 255, 0.05) inset;
+    0 4px 24px rgba(13, 59, 46, 0.1),
+    0 1px 0 rgba(13, 59, 46, 0.04) inset;
   --wails-draggable: drag;
   user-select: none;
   white-space: nowrap;
@@ -82,11 +82,11 @@
 
 .nav-btn:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(13, 59, 46, 0.05);
 }
 
 .nav-btn.active {
-  color: var(--color-neutral);
+  color: var(--color-on-primary);
   background: var(--accent);
   font-weight: 600;
 }
@@ -113,14 +113,14 @@
   align-items: center;
   gap: 8px;
   padding: 7px 14px 7px 12px;
-  background: rgba(11, 16, 22, 0.94);
-  border: 1px solid rgba(61, 214, 181, 0.28);
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(40, 199, 111, 0.28);
   border-radius: 99px;
   font-size: 12px;
   backdrop-filter: blur(20px);
   animation: bannerSlide 0.22s ease;
   white-space: nowrap;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 20px rgba(13, 59, 46, 0.12);
 }
 
 @keyframes bannerSlide {
@@ -133,7 +133,7 @@
 
 .update-banner-btn {
   background: var(--accent);
-  color: var(--color-neutral);
+  color: var(--color-on-primary);
   border: none;
   border-radius: 99px;
   padding: 3px 12px;

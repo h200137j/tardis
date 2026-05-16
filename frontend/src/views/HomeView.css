@@ -88,7 +88,7 @@
 
 .project-pill.active {
   color: var(--accent);
-  border-color: rgba(61, 214, 181, 0.4);
+  border-color: rgba(40, 199, 111, 0.4);
   background: var(--accent-dim);
 }
 
@@ -104,42 +104,26 @@
   font-family: var(--font-body);
   font-size: 14px;
   font-weight: 600;
-  color: var(--color-neutral);
+  color: var(--color-on-primary);
   border: none;
   border-radius: var(--radius-lg);
   cursor: pointer;
   position: relative;
   overflow: hidden;
   background: var(--accent);
-  box-shadow: 0 4px 28px rgba(61, 214, 181, 0.3);
+  box-shadow: 0 4px 20px rgba(40, 199, 111, 0.28);
   transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.15s;
-}
-
-.cta-btn::after {
-  content: '';
-  position: absolute;
-  top: 0; left: -110%; width: 55%; height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.22), transparent);
-  animation: shimmer 3.2s ease-in-out infinite;
-}
-.cta-btn.busy::after,
-.cta-btn.errored::after { display: none; }
-
-@keyframes shimmer {
-  0%   { left: -110%; }
-  55%  { left: 160%; }
-  100% { left: 160%; }
 }
 
 .cta-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 10px 40px rgba(61, 214, 181, 0.42);
-  filter: brightness(1.07);
+  box-shadow: 0 10px 32px rgba(40, 199, 111, 0.38);
+  filter: brightness(1.06);
 }
 
 .cta-btn:active:not(:disabled) {
   transform: translateY(0);
-  box-shadow: 0 2px 14px rgba(61, 214, 181, 0.22);
+  box-shadow: 0 2px 10px rgba(40, 199, 111, 0.2);
   filter: none;
 }
 
@@ -208,15 +192,16 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   cursor: pointer;
+  box-shadow: 0 1px 3px rgba(13, 59, 46, 0.06);
   transition: border-color 0.15s, background 0.15s, transform 0.12s, box-shadow 0.15s;
   text-align: left;
 }
 
 .action-card:hover:not(:disabled) {
-  border-color: rgba(111, 124, 136, 0.38);
+  border-color: var(--border-strong);
   background: var(--surface2);
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 6px 18px rgba(13, 59, 46, 0.1);
 }
 
 .action-card:active:not(:disabled) {
@@ -234,7 +219,7 @@
 }
 
 .action-card.errored {
-  border-color: rgba(229, 84, 84, 0.32);
+  border-color: rgba(217, 64, 64, 0.28);
   background: var(--danger-dim);
 }
 
@@ -282,11 +267,12 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  box-shadow: 0 1px 3px rgba(13, 59, 46, 0.06);
   transition: border-color 0.2s;
 }
 
 .import-row:hover {
-  border-color: rgba(61, 214, 181, 0.2);
+  border-color: rgba(40, 199, 111, 0.22);
 }
 
 .import-left {
@@ -333,7 +319,7 @@
   gap: 6px;
   padding: 8px 18px;
   background: var(--accent-dim);
-  border: 1px solid rgba(61, 214, 181, 0.25);
+  border: 1px solid rgba(40, 199, 111, 0.25);
   border-radius: var(--radius-md);
   color: var(--accent);
   font-family: var(--font-body);
@@ -345,10 +331,10 @@
 }
 
 .import-btn:hover:not(:disabled) {
-  background: rgba(61, 214, 181, 0.16);
-  border-color: rgba(61, 214, 181, 0.42);
+  background: rgba(40, 199, 111, 0.15);
+  border-color: rgba(40, 199, 111, 0.4);
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(61, 214, 181, 0.12);
+  box-shadow: 0 4px 14px rgba(40, 199, 111, 0.12);
 }
 
 .import-btn:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
@@ -378,7 +364,7 @@
 /* ── Cancel ── */
 .cancel-btn {
   background: transparent;
-  border: 1px solid rgba(229, 84, 84, 0.4);
+  border: 1px solid rgba(217, 64, 64, 0.35);
   color: var(--danger);
   border-radius: var(--radius-md);
   padding: 7px 18px;
@@ -427,22 +413,23 @@
 }
 .mobile-pill:hover {
   color: var(--accent);
-  border-color: rgba(61, 214, 181, 0.35);
+  border-color: rgba(40, 199, 111, 0.35);
   background: var(--accent-dim);
-  box-shadow: 0 0 14px rgba(61, 214, 181, 0.08);
+  box-shadow: 0 0 12px rgba(40, 199, 111, 0.1);
 }
 .mobile-pill.active {
   color: var(--accent);
-  border-color: rgba(61, 214, 181, 0.4);
+  border-color: rgba(40, 199, 111, 0.4);
   background: var(--accent-dim);
 }
 
 /* ── QR Panel ── */
 .qr-panel {
   background: var(--surface);
-  border: 1px solid rgba(61, 214, 181, 0.18);
+  border: 1px solid rgba(40, 199, 111, 0.18);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  box-shadow: 0 2px 8px rgba(13, 59, 46, 0.07);
   animation: qrSlideIn 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 @keyframes qrSlideIn {
@@ -508,6 +495,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 2px 8px rgba(13, 59, 46, 0.07);
 }
 
 .progress-panel-header {
@@ -613,19 +601,18 @@
 .transfer-section .progress-bar-track { margin: 0; }
 .progress-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--accent-h));
+  background: var(--accent);
   border-radius: 99px;
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 6px var(--accent-glow);
 }
-.progress-bar-fill.complete { box-shadow: 0 0 8px var(--accent-glow); }
+.progress-bar-fill.complete { opacity: 0.85; }
 .progress-bar-indeterminate {
   height: 100%;
   width: 38%;
-  background: linear-gradient(90deg, transparent, var(--accent), var(--accent-h), transparent);
+  background: var(--accent);
   border-radius: 99px;
   animation: indeterminate 1.6s ease-in-out infinite;
-  box-shadow: 0 0 6px var(--accent-glow);
+  opacity: 0.75;
 }
 @keyframes indeterminate {
   0%   { transform: translateX(-160%); }

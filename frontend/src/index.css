@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -7,41 +7,48 @@
 }
 
 :root {
-  /* ── DAW Waveform Design System ── */
-  --color-primary:   #E5E9EC;
-  --color-secondary: #6F7C88;
-  --color-tertiary:  #3DD6B5;
-  --color-neutral:   #0A0E12;
-  --color-surface:   #11161C;
+  /* ── Neobank Mint ── */
+  --color-primary:    #0D3B2E;
+  --color-secondary:  #6B8679;
+  --color-tertiary:   #28C76F;
+  --color-neutral:    #F3FAF5;
+  --color-surface:    #FFFFFF;
+  --color-on-primary: #FFFFFF;
 
-  /* Derived tokens */
-  --bg:           #0A0E12;
-  --surface:      #11161C;
-  --surface2:     #161E28;
-  --surface3:     #1C2535;
-  --border:       rgba(111, 124, 136, 0.14);
-  --border-strong: rgba(111, 124, 136, 0.28);
+  /* Surfaces */
+  --bg:            #F3FAF5;
+  --surface:       #FFFFFF;
+  --surface2:      #EEF5F0;
+  --surface3:      #E2EDE5;
+  --border:        rgba(107, 134, 121, 0.18);
+  --border-strong: rgba(107, 134, 121, 0.35);
 
-  --accent:       #3DD6B5;
-  --accent-dim:   rgba(61, 214, 181, 0.1);
-  --accent-glow:  rgba(61, 214, 181, 0.25);
-  --accent-h:     #5AEAC8;
-  --danger:       #E55454;
-  --danger-dim:   rgba(229, 84, 84, 0.1);
-  --success:      #3DD6B5;
-  --warning:      #DFA030;
+  /* Accent — reserve for exactly one action per screen */
+  --accent:      #28C76F;
+  --accent-dim:  rgba(40, 199, 111, 0.09);
+  --accent-glow: rgba(40, 199, 111, 0.22);
+  --accent-h:    #28C76F;
 
-  --text:         #E5E9EC;
-  --text-muted:   #6F7C88;
-  --text-dim:     #3D4D5C;
+  /* Semantic */
+  --danger:     #D94040;
+  --danger-dim: rgba(217, 64, 64, 0.09);
+  --success:    #28C76F;
+  --warning:    #C07A20;
 
-  --radius-sm:    3px;
-  --radius-md:    6px;
-  --radius-lg:    10px;
-  --radius:       var(--radius-lg);
+  /* Text */
+  --text:       #0D3B2E;
+  --text-muted: #6B8679;
+  --text-dim:   rgba(107, 134, 121, 0.55);
 
-  --font-display: 'Space Grotesk', system-ui, sans-serif;
-  --font-body:    'Inter', 'Segoe UI', system-ui, sans-serif;
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius:    var(--radius-lg);
+
+  /* Typography — Manrope for UI, JetBrains Mono for code/log content */
+  --font-display: 'Manrope', system-ui, sans-serif;
+  --font-body:    'Manrope', system-ui, sans-serif;
   --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
   --font:         var(--font-body);
 }

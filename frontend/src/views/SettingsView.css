@@ -60,7 +60,7 @@
 
 .project-tab.active {
   color: var(--accent);
-  border-color: rgba(61, 214, 181, 0.4);
+  border-color: rgba(40, 199, 111, 0.4);
   background: var(--accent-dim);
 }
 
@@ -84,7 +84,7 @@
 
 .project-tab-add:hover {
   color: var(--accent);
-  border-color: rgba(61, 214, 181, 0.4);
+  border-color: rgba(40, 199, 111, 0.4);
 }
 
 .project-name-row {
@@ -108,13 +108,13 @@
 }
 
 .project-name-input:focus {
-  border-color: rgba(61, 214, 181, 0.5);
-  box-shadow: 0 0 0 3px rgba(61, 214, 181, 0.08);
+  border-color: rgba(40, 199, 111, 0.5);
+  box-shadow: 0 0 0 3px rgba(40, 199, 111, 0.08);
 }
 
 .btn-delete-project {
   background: transparent;
-  border: 1px solid rgba(229, 84, 84, 0.3);
+  border: 1px solid rgba(217, 64, 64, 0.28);
   color: var(--danger);
   border-radius: var(--radius-md);
   padding: 7px 14px;
@@ -153,6 +153,7 @@
   flex-direction: column;
   gap: 14px;
   background: var(--surface);
+  box-shadow: 0 1px 3px rgba(13, 59, 46, 0.06);
   transition: border-color 0.2s;
 }
 
@@ -200,8 +201,8 @@
 }
 
 .field input:focus {
-  border-color: rgba(61, 214, 181, 0.5);
-  box-shadow: 0 0 0 3px rgba(61, 214, 181, 0.08);
+  border-color: rgba(40, 199, 111, 0.5);
+  box-shadow: 0 0 0 3px rgba(40, 199, 111, 0.08);
 }
 
 .field input:hover:not(:focus) {
@@ -255,7 +256,7 @@
   color: var(--danger);
   font-size: 12.5px;
   background: var(--danger-dim);
-  border: 1px solid rgba(229, 84, 84, 0.2);
+  border: 1px solid rgba(217, 64, 64, 0.18);
   border-radius: var(--radius-md);
   padding: 10px 14px;
 }
@@ -267,7 +268,7 @@
 
 .btn-save {
   background: var(--accent);
-  color: var(--color-neutral);
+  color: var(--color-on-primary);
   border: none;
   border-radius: var(--radius-md);
   padding: 10px 28px;
@@ -282,7 +283,7 @@
 .btn-save:hover {
   filter: brightness(1.08);
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(61, 214, 181, 0.28);
+  box-shadow: 0 6px 20px rgba(40, 199, 111, 0.28);
 }
 
 .btn-save:active {
@@ -313,15 +314,12 @@
 
 /* ── Mobile Companion ── */
 .fieldset--mobile {
-  border-color: rgba(61, 214, 181, 0.15);
-  background: linear-gradient(135deg,
-    var(--surface) 0%,
-    rgba(61, 214, 181, 0.02) 100%
-  );
+  border-color: rgba(40, 199, 111, 0.18);
+  background: var(--surface);
 }
 
 .fieldset--mobile:hover {
-  border-color: rgba(61, 214, 181, 0.28);
+  border-color: rgba(40, 199, 111, 0.28);
 }
 
 .mobile-desc {
@@ -333,7 +331,7 @@
 .btn-qr {
   align-self: flex-start;
   background: var(--accent-dim);
-  border: 1px solid rgba(61, 214, 181, 0.3);
+  border: 1px solid rgba(40, 199, 111, 0.3);
   border-radius: var(--radius-md);
   color: var(--accent);
   font-family: var(--font-mono);
@@ -346,9 +344,9 @@
 }
 
 .btn-qr:hover {
-  background: rgba(61, 214, 181, 0.16);
-  border-color: rgba(61, 214, 181, 0.5);
-  box-shadow: 0 0 14px rgba(61, 214, 181, 0.1);
+  background: rgba(40, 199, 111, 0.14);
+  border-color: rgba(40, 199, 111, 0.5);
+  box-shadow: 0 0 14px rgba(40, 199, 111, 0.1);
 }
 
 .qr-block {
@@ -408,7 +406,7 @@
 .toggle input:checked + .toggle-track {
   background: var(--accent);
   border-color: var(--accent);
-  box-shadow: 0 0 10px rgba(61, 214, 181, 0.25);
+  box-shadow: 0 0 10px rgba(40, 199, 111, 0.22);
 }
 
 .toggle-thumb {
@@ -420,7 +418,7 @@
   background: #fff;
   border-radius: 50%;
   transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 1px 3px rgba(13, 59, 46, 0.15);
 }
 
 .toggle input:checked + .toggle-track .toggle-thumb {

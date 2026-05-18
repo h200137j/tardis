@@ -79,6 +79,8 @@ export default function App() {
         <div style={{ display: view === 'home' ? undefined : 'none' }}><HomeView /></div>
         <div style={{ display: view === 'settings' ? undefined : 'none' }}><SettingsView /></div>
       </main>
+
+      <footer className="app-footer">made with ❤️ by uriel</footer>
     </div>
   )
 }

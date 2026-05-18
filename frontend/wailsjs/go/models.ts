@@ -6,7 +6,7 @@ export namespace main {
 	    db_user: string;
 	    db_pass: string;
 	    save_dump: boolean;
-	    incremental_sync: boolean;
+	    skip_tables: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new LocalConfig(source);
@@ -19,7 +19,7 @@ export namespace main {
 	        this.db_user = source["db_user"];
 	        this.db_pass = source["db_pass"];
 	        this.save_dump = source["save_dump"];
-	        this.incremental_sync = source["incremental_sync"];
+	        this.skip_tables = source["skip_tables"];
 	    }
 	}
 	export class ServerConfig {

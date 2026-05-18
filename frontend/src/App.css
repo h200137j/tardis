@@ -6,6 +6,17 @@
   position: relative;
 }
 
+.app-footer {
+  flex-shrink: 0;
+  text-align: center;
+  padding: 6px 0;
+  font-size: 11px;
+  color: var(--text-muted, #888);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  user-select: none;
+}
+
 /* ── Floating Pill Nav ── */
 .nav {
   position: fixed;

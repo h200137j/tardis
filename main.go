@@ -33,10 +33,10 @@ func main() {
 
 	err := wails.Run(&options.App{
 		Title:     "TARDIS — Transfer And Retrieve Database In Seconds",
-		Width:     900,
-		Height:    650,
-		MinWidth:  700,
-		MinHeight: 500,
+		Width:     1125,
+		Height:    812,
+		MinWidth:  875,
+		MinHeight: 625,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

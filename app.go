@@ -11,8 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,12 +34,12 @@ type ServerConfig struct {
 
 // LocalConfig holds settings for importing into the local machine's MySQL.
 type LocalConfig struct {
-	MySQLBin        string `json:"mysql_bin"`
-	DBName          string `json:"db_name"`
-	DBUser          string `json:"db_user"`
-	DBPass          string `json:"db_pass"`
-	SaveDump        bool   `json:"save_dump"`
-	IncrementalSync bool   `json:"incremental_sync"`
+	MySQLBin        string   `json:"mysql_bin"`
+	DBName          string   `json:"db_name"`
+	DBUser          string   `json:"db_user"`
+	DBPass          string   `json:"db_pass"`
+	SaveDump   bool     `json:"save_dump"`
+	SkipTables []string `json:"skip_tables"`
 }
 
 // Project groups production/test/local configs under a user-defined name.
@@ -542,10 +540,24 @@ type ImportProgress struct {
 	Total   int    `json:"total"`
 }
 
+// extractTableName returns the backtick-quoted name from a mysqldump comment line.
+func extractTableName(s string) string {
+	i := strings.Index(s, "`")
+	if i < 0 {
+		return ""
+	}
+	j := strings.Index(s[i+1:], "`")
+	if j < 0 {
+		return ""
+	}
+	return s[i+1 : i+1+j]
+}
+
 // streamingImport decompresses filePath and pipes it into mysql.
+// skipTables lists table names to exclude from the import.
 // onTable fires once per detected table (for log messages).
 // onBytes fires every 256 KB of compressed input read (for the progress bar).
-func streamingImport(ctx context.Context, filePath, mysqlBin string, args []string, onTable func(ImportProgress), onBytes func(int64, int64)) error {
+func streamingImport(ctx context.Context, filePath, mysqlBin string, args []string, skipTables []string, onTable func(ImportProgress), onBytes func(int64, int64)) error {
 	// ── 1. Validate binary path early so the error is actionable ──────────
 	resolvedBin, err := exec.LookPath(mysqlBin)
 	if err != nil {
@@ -614,6 +626,14 @@ func streamingImport(ctx context.Context, filePath, mysqlBin string, args []stri
 	bw := bufio.NewWriterSize(stdin, 32*1024*1024)
 	bw.WriteString("SET autocommit=0;\n")
 
+	skipSet := make(map[string]bool, len(skipTables))
+	for _, t := range skipTables {
+		if s := strings.TrimSpace(t); s != "" {
+			skipSet[s] = true
+		}
+	}
+	skipping := false
+
 	current := 0
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 8*1024*1024), 8*1024*1024)
@@ -629,20 +649,24 @@ func streamingImport(ctx context.Context, filePath, mysqlBin string, args []stri
 
 		// Only allocate a string on comment lines to detect table boundaries
 		if len(line) > 28 && line[0] == '-' && line[1] == '-' {
-			if bytes.HasPrefix(line, []byte("-- Table structure for table")) {
-				current++
-				table := string(line)
-				if i := strings.Index(table, "`"); i >= 0 {
-					table = strings.ReplaceAll(table[i:], "`", "")
-				}
-				if onTable != nil {
-					onTable(ImportProgress{Table: table, Current: current})
+			isStructure := bytes.HasPrefix(line, []byte("-- Table structure for table"))
+			isData := bytes.HasPrefix(line, []byte("-- Dumping data for table"))
+			if isStructure || isData {
+				tableName := extractTableName(string(line))
+				skipping = skipSet[tableName]
+				if isStructure && !skipping {
+					current++
+					if onTable != nil {
+						onTable(ImportProgress{Table: tableName, Current: current})
+					}
 				}
 			}
 		}
 
-		bw.Write(line)
-		bw.WriteByte('\n')
+		if !skipping {
+			bw.Write(line)
+			bw.WriteByte('\n')
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -928,124 +952,6 @@ func shellescape(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// ── Incremental sync helpers ──────────────────────────────────────────────────
-
-// queryLocalMaxIDs returns {tableName → MAX(id)} for every local table that has
-// an integer 'id' column. Uses a single UNION ALL query to avoid N round-trips.
-// Returns nil on any error — callers treat nil as "do a full dump instead".
-func queryLocalMaxIDs(local LocalConfig) map[string]int64 {
-	bin := local.MySQLBin
-	if bin == "" {
-		bin = "mysql"
-	}
-	resolved, err := exec.LookPath(bin)
-	if err != nil {
-		return nil
-	}
-
-	base := []string{"-u", local.DBUser}
-	if local.DBPass != "" {
-		base = append(base, "-p"+local.DBPass)
-	}
-	base = append(base, "--batch", "--skip-column-names", local.DBName)
-
-	withSQL := func(sql string) []string {
-		dst := make([]string, len(base), len(base)+2)
-		copy(dst, base)
-		return append(dst, "-e", sql)
-	}
-
-	// Step 1: find all BASE TABLEs that have an 'id' column
-	listSQL := fmt.Sprintf(
-		"SELECT TABLE_NAME FROM information_schema.COLUMNS "+
-			"WHERE TABLE_SCHEMA='%s' AND COLUMN_NAME='id' "+
-			"AND TABLE_NAME IN (SELECT TABLE_NAME FROM information_schema.TABLES "+
-			"WHERE TABLE_SCHEMA='%s' AND TABLE_TYPE='BASE TABLE') "+
-			"ORDER BY TABLE_NAME",
-		local.DBName, local.DBName,
-	)
-	out, err := exec.Command(resolved, withSQL(listSQL)...).Output()
-	if err != nil || len(strings.TrimSpace(string(out))) == 0 {
-		return nil
-	}
-	tables := strings.Fields(string(out))
-	if len(tables) == 0 {
-		return nil
-	}
-
-	// Step 2: UNION ALL to get MAX(id) per table in one query
-	parts := make([]string, len(tables))
-	for i, t := range tables {
-		parts[i] = fmt.Sprintf("SELECT '%s', COALESCE(MAX(id), 0) FROM `%s`", t, t)
-	}
-	out, err = exec.Command(resolved, withSQL(strings.Join(parts, " UNION ALL "))...).Output()
-	if err != nil {
-		return nil
-	}
-
-	maxIDs := make(map[string]int64, len(tables))
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.SplitN(strings.TrimSpace(line), "\t", 2)
-		if len(fields) != 2 {
-			continue
-		}
-		n, err := strconv.ParseInt(strings.TrimSpace(fields[1]), 10, 64)
-		if err != nil {
-			continue
-		}
-		maxIDs[strings.TrimSpace(fields[0])] = n
-	}
-	return maxIDs
-}
-
-// buildIncrementalDumpCmd builds a shell command (safe to pass to SSH) that:
-//  1. Dumps schema only  (handles new tables / column additions)
-//  2. For each tracked table: dumps only rows with id > local max  (--replace so prod wins)
-//  3. Full-replaces all remaining tables  (no 'id', or tables not yet in local DB)
-//
-// Result is piped through the sandbox-row filter and gzipped into remoteFile.
-func buildIncrementalDumpCmd(prod ServerConfig, maxIDs map[string]int64, remoteFile string) string {
-	passFlag := ""
-	if prod.DBPassword != "" {
-		passFlag = "-p" + prod.DBPassword
-	}
-	flags := "--single-transaction --quick --no-tablespaces --skip-add-locks"
-
-	base := fmt.Sprintf("mysqldump -u %s %s %s %s", prod.DBUser, passFlag, prod.DBName, flags)
-
-	tables := make([]string, 0, len(maxIDs))
-	for t := range maxIDs {
-		tables = append(tables, t)
-	}
-	sort.Strings(tables)
-
-	var cmds []string
-
-	// 1. Schema only
-	cmds = append(cmds, base+" --no-data")
-
-	// 2. Incremental per-table dumps
-	var ignoreFlags []string
-	for _, t := range tables {
-		where := shellescape(fmt.Sprintf("id > %d", maxIDs[t]))
-		cmds = append(cmds, fmt.Sprintf(
-			"mysqldump -u %s %s %s %s %s --where=%s --no-create-info --replace",
-			prod.DBUser, passFlag, prod.DBName, flags, t, where,
-		))
-		ignoreFlags = append(ignoreFlags, fmt.Sprintf("--ignore-table=%s.%s", prod.DBName, t))
-	}
-
-	// 3. Full data for non-incremental tables
-	rest := base + " --no-create-info --replace"
-	if len(ignoreFlags) > 0 {
-		rest += " " + strings.Join(ignoreFlags, " ")
-	}
-	cmds = append(cmds, rest)
-
-	inner := "{ " + strings.Join(cmds, "; ") + "; }"
-	return fmt.Sprintf("%s | sed '/^.*999999.*sandbox/d' | gzip > %s", inner, remoteFile)
-}
-
 // ── SyncAndImportLocal: prod → ~/Downloads → local MySQL ─────────────────────
 
 func (a *App) SyncAndImportLocal() error {
@@ -1083,20 +989,18 @@ func (a *App) SyncAndImportLocal() error {
 	defer client.Close()
 
 	a.emit("pull:phase", "dumping")
+	a.emit("pull:progress", "Dumping database on server...")
 
-	var dumpCmd string
-	if local.IncrementalSync {
-		a.emit("pull:progress", "Querying local database for sync state...")
-		maxIDs := queryLocalMaxIDs(local)
-		a.emit("pull:progress", fmt.Sprintf("Incremental dump: %d tables tracked, fetching new rows only...", len(maxIDs)))
-		dumpCmd = buildIncrementalDumpCmd(prod, maxIDs, remoteFile)
-	} else {
-		a.emit("pull:progress", "Dumping database on server...")
-		dumpCmd = fmt.Sprintf(
-			"mysqldump -u %s -p%s %s --single-transaction --quick --no-tablespaces --skip-add-locks | sed '/^.*999999.*sandbox/d' | gzip > %s",
-			prod.DBUser, prod.DBPassword, prod.DBName, remoteFile,
-		)
+	var skipFlags string
+	for _, t := range local.SkipTables {
+		if s := strings.TrimSpace(t); s != "" {
+			skipFlags += fmt.Sprintf(" --ignore-table=%s.%s", prod.DBName, s)
+		}
 	}
+	dumpCmd := fmt.Sprintf(
+		"mysqldump -u %s -p%s %s --single-transaction --quick --no-tablespaces --skip-add-locks%s | sed '/^.*999999.*sandbox/d' | gzip > %s",
+		prod.DBUser, prod.DBPassword, prod.DBName, skipFlags, remoteFile,
+	)
 
 	if err := runSSHCommand(client, dumpCmd); err != nil {
 		return a.fail("pull:error", "pull:progress", "Dump failed: %v", err)
@@ -1146,7 +1050,7 @@ func (a *App) SyncAndImportLocal() error {
 	}
 	mysqlArgs = append(mysqlArgs, local.DBName)
 
-	if err := streamingImport(ctx, localPath, mysqlBin, mysqlArgs,
+	if err := streamingImport(ctx, localPath, mysqlBin, mysqlArgs, local.SkipTables,
 		func(p ImportProgress) {
 			a.emit("pull:progress", fmt.Sprintf("Importing table %s (%d)...", p.Table, p.Current))
 		},
@@ -1205,7 +1109,7 @@ func (a *App) ImportLocal(filePath string) error {
 	}
 	args = append(args, local.DBName)
 
-	if err := streamingImport(ctx, filePath, mysqlBin, args,
+	if err := streamingImport(ctx, filePath, mysqlBin, args, local.SkipTables,
 		func(p ImportProgress) {
 			a.emit("import:progress", fmt.Sprintf("Importing table %s (%d)...", p.Table, p.Current))
 		},

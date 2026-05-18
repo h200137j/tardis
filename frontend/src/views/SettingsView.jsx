@@ -17,8 +17,8 @@ const DEFAULT_LOCAL = {
   db_name:          '',
   db_user:          'root',
   db_pass:          '',
-  save_dump:        false,
-  incremental_sync: false,
+  save_dump:   false,
+  skip_tables: [],
 }
 
 const newProject = (id, name = 'New Project') => ({
@@ -219,12 +219,11 @@ export default function SettingsView() {
                   <span className="toggle-track"><span className="toggle-thumb" /></span>
                 </label>
               </Field>
-              <Field label="Incremental sync" hint="Only pull new rows (id > local max) — prod wins on conflict. Skips deletes.">
-                <label className="toggle">
-                  <input type="checkbox" checked={!!proj.local.incremental_sync}
-                    onChange={e => set('local', 'incremental_sync', e.target.checked)} />
-                  <span className="toggle-track"><span className="toggle-thumb" /></span>
-                </label>
+              <Field label="Skip tables" hint="Comma-separated table names to exclude from import (e.g. sessions, logs, cache)">
+                <input type="text"
+                  value={(proj.local.skip_tables || []).join(', ')}
+                  onChange={e => set('local', 'skip_tables', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+                  placeholder="sessions, logs, cache" />
               </Field>
             </div>
           </div>

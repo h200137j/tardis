@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 100" width="540" height="100">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F4535"/>
+      <stop offset="100%" stop-color="#072820"/>
+    </linearGradient>
+    <linearGradient id="dbTopGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F3FAF5"/>
+      <stop offset="100%" stop-color="#CCE8D6"/>
+    </linearGradient>
+    <linearGradient id="dbBodyGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#B8D9C5"/>
+      <stop offset="40%" stop-color="#D8EDDF"/>
+      <stop offset="100%" stop-color="#A4C8B4"/>
+    </linearGradient>
+    <linearGradient id="dbBotGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#AECEBE"/>
+      <stop offset="100%" stop-color="#92B8A4"/>
+    </linearGradient>
+    <linearGradient id="boltGrad" x1="0%" y1="0%" x2="20%" y2="100%">
+      <stop offset="0%" stop-color="#44EF86"/>
+      <stop offset="100%" stop-color="#1CA352"/>
+    </linearGradient>
+    <radialGradient id="glowBg" cx="50%" cy="68%" r="45%">
+      <stop offset="0%" stop-color="#28C76F" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#28C76F" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="boltBlur" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="3.5"/>
+    </filter>
+    <filter id="boltGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="1" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="540" height="100" rx="16" fill="url(#bg)"/>
+
+  <!-- Subtle left border accent -->
+  <rect x="0" y="0" width="4" height="100" rx="2" fill="#28C76F" opacity="0.6"/>
+
+  <!-- ======== ICON (scaled 0.3125x from 256 → 80, offset 10,10) ======== -->
+  <g transform="translate(10,10) scale(0.3125)">
+    <!-- Dot grid -->
+    <g fill="#28C76F" opacity="0.07">
+      <circle cx="48"  cy="48"  r="1.5"/><circle cx="208" cy="48"  r="1.5"/>
+      <circle cx="48"  cy="208" r="1.5"/><circle cx="208" cy="208" r="1.5"/>
+    </g>
+
+    <!-- Bolt glow bloom -->
+    <polygon points="148,152 100,202 124,202 104,246 158,196 132,196"
+             fill="#28C76F" opacity="0.4" filter="url(#boltBlur)"/>
+
+    <!-- Radial glow -->
+    <ellipse cx="128" cy="195" rx="78" ry="58" fill="url(#glowBg)"/>
+
+    <!-- DB body -->
+    <rect x="76" y="72" width="104" height="88" rx="3" fill="url(#dbBodyGrad)"/>
+
+    <!-- DB top cap -->
+    <ellipse cx="128" cy="72" rx="52" ry="16" fill="url(#dbTopGrad)"/>
+    <ellipse cx="112" cy="66" rx="24" ry="6.5" fill="white" opacity="0.22"/>
+
+    <!-- Stripes -->
+    <rect x="76" y="105" width="104" height="1.5" fill="#0D3B2E" opacity="0.18"/>
+    <rect x="76" y="132" width="104" height="1.5" fill="#0D3B2E" opacity="0.18"/>
+
+    <!-- LEDs -->
+    <circle cx="93"  cy="119" r="3.5" fill="#28C76F" opacity="0.9"/>
+    <circle cx="107" cy="119" r="3.5" fill="#28C76F" opacity="0.55"/>
+    <circle cx="121" cy="119" r="3.5" fill="#28C76F" opacity="0.28"/>
+
+    <!-- DB bottom cap -->
+    <ellipse cx="128" cy="160" rx="52" ry="16" fill="url(#dbBotGrad)"/>
+
+    <!-- Bolt -->
+    <polygon points="148,152 100,202 124,202 104,246 158,196 132,196"
+             fill="url(#boltGrad)" filter="url(#boltGlow)"/>
+    <polygon points="148,152 100,202 124,202 104,246 158,196 132,196"
+             fill="none" stroke="white" stroke-width="1"
+             stroke-linejoin="round" opacity="0.2"/>
+  </g>
+
+  <!-- ======== TEXT AREA ======== -->
+  <!-- TARDIS wordmark -->
+  <text x="108" y="46"
+        font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif"
+        font-size="38"
+        font-weight="800"
+        fill="#F3FAF5"
+        letter-spacing="-1">TARDIS</text>
+
+  <!-- Accent underline -->
+  <rect x="108" y="52" width="120" height="2.5" rx="1.25" fill="#28C76F" opacity="0.7"/>
+
+  <!-- Tagline -->
+  <text x="108" y="72"
+        font-family="'Manrope', 'Inter', system-ui, -apple-system, sans-serif"
+        font-size="11"
+        font-weight="600"
+        fill="#6B8679"
+        letter-spacing="1.5">TRANSFER AND RETRIEVE DATABASE IN SECONDS</text>
+</svg>

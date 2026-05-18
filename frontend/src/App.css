@@ -17,8 +17,8 @@
   align-items: center;
   height: 40px;
   padding: 0 6px 0 16px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(107, 134, 121, 0.18);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border: 1px solid var(--border);
   border-radius: 99px;
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
@@ -82,7 +82,7 @@
 
 .nav-btn:hover {
   color: var(--text);
-  background: rgba(13, 59, 46, 0.05);
+  background: var(--surface2);
 }
 
 .nav-btn.active {
@@ -90,6 +90,20 @@
   background: var(--accent);
   font-weight: 600;
 }
+
+.nav-theme-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 10px;
+  cursor: pointer;
+  transition: color 0.15s, opacity 0.15s;
+  --wails-draggable: no-drag;
+  opacity: 0.7;
+}
+.nav-theme-btn:hover { color: var(--accent); opacity: 1; }
 
 .nav-version {
   font-family: var(--font-mono);
@@ -113,7 +127,7 @@
   align-items: center;
   gap: 8px;
   padding: 7px 14px 7px 12px;
-  background: rgba(255, 255, 255, 0.96);
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
   border: 1px solid rgba(40, 199, 111, 0.28);
   border-radius: 99px;
   font-size: 12px;

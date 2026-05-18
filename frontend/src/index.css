@@ -53,6 +53,28 @@
   --font:         var(--font-body);
 }
 
+[data-theme="dark"] {
+  --color-primary:    #28C76F;
+  --color-neutral:    #0A1A12;
+  --color-surface:    #0F2318;
+
+  --bg:            #0A1A12;
+  --surface:       #0F2318;
+  --surface2:      #152C1E;
+  --surface3:      #1C3828;
+  --border:        rgba(107, 134, 121, 0.15);
+  --border-strong: rgba(107, 134, 121, 0.28);
+
+  --accent-dim:  rgba(40, 199, 111, 0.12);
+  --accent-glow: rgba(40, 199, 111, 0.28);
+
+  --danger-dim: rgba(217, 64, 64, 0.12);
+
+  --text:       #E8F5EC;
+  --text-muted: #8BAF98;
+  --text-dim:   rgba(139, 175, 152, 0.45);
+}
+
 html, body, #root {
   height: 100%;
   background: var(--bg);

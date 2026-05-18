@@ -4,11 +4,23 @@ import SettingsView from './views/SettingsView'
 import { GetVersion, CheckForUpdate, OpenURL } from '../wailsjs/go/main/App'
 import './App.css'
 
+function getInitialDark() {
+  const stored = localStorage.getItem('theme')
+  if (stored) return stored === 'dark'
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+}
+
 export default function App() {
   const [view, setView]           = useState('home')
   const [version, setVersion]     = useState('')
   const [update, setUpdate]       = useState(null)
   const [dismissed, setDismissed] = useState(false)
+  const [dark, setDark]           = useState(getInitialDark)
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+    localStorage.setItem('theme', dark ? 'dark' : 'light')
+  }, [dark])
 
   useEffect(() => {
     GetVersion().then(setVersion).catch(() => {})
@@ -35,6 +47,14 @@ export default function App() {
             onClick={() => setView('settings')}
           >Settings</button>
         </div>
+        <button
+          className="nav-theme-btn"
+          onClick={() => setDark(d => !d)}
+          aria-label="Toggle dark mode"
+          title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {dark ? '☀︎' : '◑'}
+        </button>
         {version && <span className="nav-version">{version}</span>}
       </nav>
 
@@ -56,7 +76,8 @@ export default function App() {
       )}
 
       <main className="main-content">
-        {view === 'home' ? <HomeView /> : <SettingsView />}
+        <div style={{ display: view === 'home' ? undefined : 'none' }}><HomeView /></div>
+        <div style={{ display: view === 'settings' ? undefined : 'none' }}><SettingsView /></div>
       </main>
     </div>
   )

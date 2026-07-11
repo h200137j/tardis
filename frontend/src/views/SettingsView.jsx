@@ -173,19 +173,21 @@ export default function SettingsView() {
         </div>
 
         <ServerFieldset
-          legend="🟢 Production Server"
+          legend="Production Server"
+          tone="prod"
           values={proj.production}
           onChange={(k, v) => set('production', k, v)}
         />
 
         <ServerFieldset
-          legend="🧪 Test Server"
+          legend="Test Server"
+          tone="test"
           values={proj.test}
           onChange={(k, v) => set('test', k, v)}
         />
 
-        <fieldset className="fieldset">
-          <legend>💻 Local Import</legend>
+        <fieldset className="fieldset fieldset--local">
+          <legend>Local Import</legend>
           <div className="fieldset-columns">
             <div className="fieldset-col">
               <p className="col-label">MySQL</p>
@@ -233,13 +235,13 @@ export default function SettingsView() {
 
         {/* Mobile Companion */}
         <fieldset className="fieldset fieldset--mobile">
-          <legend>📱 Mobile Companion</legend>
+          <legend>Mobile Companion</legend>
           <p className="mobile-desc">
             Scan the QR code with your phone to open the TARDIS Remote web app.
             Both devices must be on the same network.
           </p>
           <button type="button" className="btn-qr" onClick={showQR}>
-            {qrVisible ? '✕ Hide QR Code' : '📱 Show QR Code'}
+            {qrVisible ? 'Hide QR code' : 'Show QR code'}
           </button>
           {qrVisible && qr && (
             <div className="qr-block">
@@ -260,9 +262,9 @@ export default function SettingsView() {
   )
 }
 
-function ServerFieldset({ legend, values, onChange }) {
+function ServerFieldset({ legend, tone, values, onChange }) {
   return (
-    <fieldset className="fieldset">
+    <fieldset className={`fieldset ${tone ? `fieldset--${tone}` : ''}`}>
       <legend>{legend}</legend>
 
       <div className="fieldset-columns">

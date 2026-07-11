@@ -17,10 +17,27 @@
 
 .settings-title {
   font-family: var(--font-display);
-  font-size: 1.2rem;
+  font-size: 1.15rem;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: 0.04em;
   color: var(--text);
+}
+
+/* staggered entrance */
+.settings-form > * {
+  animation: settingsRise 0.5s var(--ease-out) backwards;
+}
+.settings-form > *:nth-child(1) { animation-delay: 0.02s; }
+.settings-form > *:nth-child(2) { animation-delay: 0.06s; }
+.settings-form > *:nth-child(3) { animation-delay: 0.1s; }
+.settings-form > *:nth-child(4) { animation-delay: 0.14s; }
+.settings-form > *:nth-child(5) { animation-delay: 0.18s; }
+.settings-form > *:nth-child(6) { animation-delay: 0.22s; }
+.settings-form > *:nth-child(7) { animation-delay: 0.26s; }
+
+@keyframes settingsRise {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ── Project Tabs ── */
@@ -44,23 +61,24 @@
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.04em;
-  color: var(--text-dim);
+  color: var(--text-muted);
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: 99px;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  transition: color 0.2s, border-color 0.2s, background 0.2s, transform 0.2s var(--ease-spring);
 }
 
 .project-tab:hover {
-  color: var(--text-muted);
+  color: var(--text);
   border-color: var(--border-strong);
   background: var(--surface2);
+  transform: translateY(-1px);
 }
 
 .project-tab.active {
   color: var(--accent);
-  border-color: rgba(40, 199, 111, 0.4);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   background: var(--accent-dim);
 }
 
@@ -75,16 +93,17 @@
   line-height: 1;
   color: var(--text-dim);
   background: transparent;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-strong);
+  border-radius: 99px;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.2s, border-color 0.2s, transform 0.2s var(--ease-spring);
   flex-shrink: 0;
 }
 
 .project-tab-add:hover {
   color: var(--accent);
-  border-color: rgba(40, 199, 111, 0.4);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  transform: scale(1.1);
 }
 
 .project-name-row {
@@ -99,31 +118,31 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text);
-  padding: 7px 11px;
-  font-family: var(--font-display);
+  padding: 8px 12px;
+  font-family: var(--font-body);
   font-size: 13px;
   font-weight: 600;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .project-name-input:focus {
-  border-color: rgba(40, 199, 111, 0.5);
-  box-shadow: 0 0 0 3px rgba(40, 199, 111, 0.08);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
 .btn-delete-project {
   background: transparent;
-  border: 1px solid rgba(217, 64, 64, 0.28);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
   color: var(--danger);
   border-radius: var(--radius-md);
-  padding: 7px 14px;
+  padding: 8px 14px;
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.04em;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.2s, border-color 0.2s;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -152,13 +171,16 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  background: var(--surface);
-  box-shadow: 0 1px 3px rgba(13, 59, 46, 0.06);
-  transition: border-color 0.2s;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: border-color 0.25s, box-shadow 0.25s;
 }
 
 .fieldset:hover {
   border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
 }
 
 .fieldset legend {
@@ -167,9 +189,26 @@
   font-size: 10px;
   font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--accent);
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
+
+/* status lamp per environment */
+.fieldset legend::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  flex-shrink: 0;
+}
+.fieldset--prod  legend::before { background: var(--danger);  box-shadow: 0 0 8px var(--danger-dim); }
+.fieldset--test  legend::before { background: var(--amber);   box-shadow: 0 0 8px var(--amber-glow); }
+.fieldset--local legend::before { background: var(--success); box-shadow: 0 0 8px var(--success-dim); }
+.fieldset--mobile legend::before { background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); }
 
 /* ── Field ── */
 .field {
@@ -196,13 +235,13 @@
   font-family: var(--font-body);
   font-size: 12.5px;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.2s, box-shadow 0.2s;
   width: 100%;
 }
 
 .field input:focus {
-  border-color: rgba(40, 199, 111, 0.5);
-  box-shadow: 0 0 0 3px rgba(40, 199, 111, 0.08);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
 .field input:hover:not(:focus) {
@@ -256,9 +295,10 @@
   color: var(--danger);
   font-size: 12.5px;
   background: var(--danger-dim);
-  border: 1px solid rgba(217, 64, 64, 0.18);
+  border: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
   border-radius: var(--radius-md);
   padding: 10px 14px;
+  animation: settingsRise 0.3s var(--ease-out);
 }
 
 .form-actions {
@@ -267,8 +307,8 @@
 }
 
 .btn-save {
-  background: var(--accent);
-  color: var(--color-on-primary);
+  background: linear-gradient(135deg, var(--accent-hot), var(--accent));
+  color: var(--on-accent);
   border: none;
   border-radius: var(--radius-md);
   padding: 10px 28px;
@@ -277,18 +317,20 @@
   font-weight: 700;
   letter-spacing: 0.02em;
   cursor: pointer;
-  transition: filter 0.15s, transform 0.12s, box-shadow 0.15s;
+  box-shadow: 0 3px 14px var(--accent-dim);
+  transition: filter 0.15s, transform 0.2s var(--ease-spring), box-shadow 0.2s;
 }
 
 .btn-save:hover {
   filter: brightness(1.08);
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(40, 199, 111, 0.28);
+  box-shadow: 0 8px 24px var(--accent-glow);
 }
 
 .btn-save:active {
   transform: translateY(0);
   filter: none;
+  box-shadow: 0 2px 8px var(--accent-dim);
 }
 
 /* ── Two-column fieldset layout ── */
@@ -303,7 +345,7 @@
   font-size: 9.5px;
   font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   color: var(--text-dim);
   margin-bottom: 10px;
 }
@@ -314,12 +356,11 @@
 
 /* ── Mobile Companion ── */
 .fieldset--mobile {
-  border-color: rgba(40, 199, 111, 0.18);
-  background: var(--surface);
+  border-color: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .fieldset--mobile:hover {
-  border-color: rgba(40, 199, 111, 0.28);
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
 .mobile-desc {
@@ -331,7 +372,7 @@
 .btn-qr {
   align-self: flex-start;
   background: var(--accent-dim);
-  border: 1px solid rgba(40, 199, 111, 0.3);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
   border-radius: var(--radius-md);
   color: var(--accent);
   font-family: var(--font-mono);
@@ -340,13 +381,14 @@
   letter-spacing: 0.04em;
   padding: 8px 18px;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s var(--ease-spring);
 }
 
 .btn-qr:hover {
-  background: rgba(40, 199, 111, 0.14);
-  border-color: rgba(40, 199, 111, 0.5);
-  box-shadow: 0 0 14px rgba(40, 199, 111, 0.1);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow: 0 0 14px var(--accent-dim);
+  transform: translateY(-1px);
 }
 
 .qr-block {
@@ -358,12 +400,12 @@
   background: var(--surface2);
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
-  animation: qrFadeIn 0.2s ease;
+  animation: qrFadeIn 0.3s var(--ease-out);
 }
 
 @keyframes qrFadeIn {
-  from { opacity: 0; transform: translateY(-6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .qr-img {
@@ -394,31 +436,31 @@
 .toggle input { display: none; }
 
 .toggle-track {
-  width: 34px;
-  height: 18px;
-  background: var(--surface2);
+  width: 36px;
+  height: 20px;
+  background: var(--surface3);
   border: 1px solid var(--border-strong);
   border-radius: 99px;
   position: relative;
-  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+  transition: background 0.25s, border-color 0.25s, box-shadow 0.25s;
 }
 
 .toggle input:checked + .toggle-track {
   background: var(--accent);
   border-color: var(--accent);
-  box-shadow: 0 0 10px rgba(40, 199, 111, 0.22);
+  box-shadow: 0 0 10px var(--accent-glow);
 }
 
 .toggle-thumb {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   background: #fff;
   border-radius: 50%;
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 1px 3px rgba(13, 59, 46, 0.15);
+  transition: transform 0.25s var(--ease-spring);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 .toggle input:checked + .toggle-track .toggle-thumb {

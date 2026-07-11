@@ -17,13 +17,12 @@ function fmtDuration(ms) {
   return `${s}s`
 }
 
-function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transferEvent, phaseEvent, fn, animCountRef }) {
+function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transferEvent, phaseEvent, fn }) {
   const [status, setStatus]       = useState(STATUS.IDLE)
   const [logs, setLogs]           = useState([])
   const [transfer, setTransfer]   = useState(null)
   const [elapsed, setElapsed]     = useState(0)
   const [totalTime, setTotalTime] = useState(null)
-  const [animIndex, setAnimIndex] = useState(0)
   const [phase, setPhase]         = useState('idle')
   const logEndRef                 = useRef(null)
   const startRef                  = useRef(null)
@@ -83,8 +82,6 @@ function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transfe
   useEffect(() => () => clearInterval(timerRef.current), [])
 
   const run = async (overrideFn) => {
-    const idx = animCountRef ? animCountRef.current++ : 0
-    setAnimIndex(idx)
     setPhase('idle')
     setStatus(STATUS.RUNNING)
     setLogs([])
@@ -105,11 +102,67 @@ function useSync({ progressEvent, doneEvent, errorEvent, cancelledEvent, transfe
     setElapsed(0)
   }
 
-  return { status, logs, logEndRef, transfer, elapsed, totalTime, animIndex, phase, run, clear }
+  return { status, logs, logEndRef, transfer, elapsed, totalTime, phase, run, clear }
+}
+
+function ArrowDownIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3v13" />
+      <path d="M6 11l6 6 6-6" />
+      <path d="M5 21h14" />
+    </svg>
+  )
+}
+
+function PullIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 4v12" />
+      <path d="M7 11l5 5 5-5" />
+      <ellipse cx="12" cy="20.5" rx="7" ry="2" />
+    </svg>
+  )
+}
+
+function PushIcon() {
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20V8" />
+      <path d="M7 13l5-5 5 5" />
+      <ellipse cx="12" cy="3.5" rx="7" ry="2" />
+    </svg>
+  )
+}
+
+function FileIcon() {
+  return (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+      <path d="M14 2v6h6" />
+      <path d="M9 15h6M9 11h2" />
+    </svg>
+  )
+}
+
+function FolderIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+    </svg>
+  )
+}
+
+function PhoneIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="6" y="2" width="12" height="20" rx="2.5" />
+      <path d="M11 18h2" />
+    </svg>
+  )
 }
 
 export default function HomeView() {
-  const animCountRef = useRef(0)
   const [qrOpen, setQrOpen]             = useState(false)
   const [qrImg, setQrImg]               = useState('')
   const [qrUrl, setQrUrl]               = useState('')
@@ -157,7 +210,6 @@ export default function HomeView() {
     cancelledEvent: 'sync:cancelled',
     transferEvent:  'sync:transfer',
     fn:             SyncDatabase,
-    animCountRef,
   })
 
   const test = useSync({
@@ -167,7 +219,6 @@ export default function HomeView() {
     cancelledEvent: 'test:cancelled',
     transferEvent:  'test:transfer',
     fn:             SyncToTest,
-    animCountRef,
   })
 
   const pull = useSync({
@@ -178,7 +229,6 @@ export default function HomeView() {
     transferEvent:  'pull:transfer',
     phaseEvent:     'pull:phase',
     fn:             SyncAndImportLocal,
-    animCountRef,
   })
 
   const importSync = useSync({
@@ -188,7 +238,6 @@ export default function HomeView() {
     cancelledEvent: 'import:cancelled',
     transferEvent:  'import:transfer',
     fn:             () => {},
-    animCountRef,
   })
 
   const handlePickAndImport = async () => {
@@ -256,7 +305,7 @@ export default function HomeView() {
           </span>
         ) : (
           <span className="cta-inner">
-            <span className="cta-arrow">⬇</span>
+            <span className="cta-arrow"><ArrowDownIcon /></span>
             <span className="cta-text">
               <span className="cta-main">{pullLabel}</span>
               <span className="cta-sub">{projectPrefix}production → local MySQL</span>
@@ -268,7 +317,7 @@ export default function HomeView() {
       {/* Secondary action grid */}
       <div className="action-grid">
         <ActionCard
-          icon="⬇"
+          icon={<PullIcon />}
           title="Pull from Production"
           sub="Dump & download only"
           busyLabel="Pulling..."
@@ -277,7 +326,7 @@ export default function HomeView() {
           onClick={prod.run}
         />
         <ActionCard
-          icon="⬆"
+          icon={<PushIcon />}
           title="Push to Test Server"
           sub="Sync prod → test DB"
           busyLabel="Pushing..."
@@ -290,7 +339,7 @@ export default function HomeView() {
       {/* Import local */}
       <div className="import-row">
         <div className="import-left">
-          <span className="import-emoji">💻</span>
+          <span className="import-icon"><FileIcon /></span>
           <div>
             <p className="import-title">Import Local File</p>
             <p className="import-sub">Select a <code>.sql</code> or <code>.sql.gz</code> dump</p>
@@ -305,7 +354,7 @@ export default function HomeView() {
            : importSync.status === STATUS.DONE     ? '✓ Import Another'
            : importSync.status === STATUS.ERROR    ? '↺ Retry'
            : importSync.status === STATUS.CANCELLED ? '↺ Try Again'
-           : '📂 Select File'}
+           : <><FolderIcon /> Select File</>}
         </button>
       </div>
 
@@ -319,8 +368,8 @@ export default function HomeView() {
           onClick={toggleQR}
           disabled={qrLoading}
         >
-          <span>{qrLoading ? '⏳' : '📱'}</span>
-          <span>{qrOpen ? 'Hide Remote' : 'Mobile Remote'}</span>
+          <PhoneIcon />
+          <span>{qrLoading ? 'Loading...' : qrOpen ? 'Hide Remote' : 'Mobile Remote'}</span>
         </button>
       </div>
 
@@ -332,7 +381,7 @@ export default function HomeView() {
               <img src={qrImg} alt="Scan to open TARDIS Remote" className="qr-img" />
             </div>
             <div className="qr-right">
-              <p className="qr-title">📱 TARDIS Remote</p>
+              <p className="qr-title">TARDIS Remote</p>
               <p className="qr-desc">Scan with your phone to trigger syncs from anywhere on your network.</p>
               <p className="qr-url">{qrUrl}</p>
               <p className="qr-hint">Same Wi-Fi required</p>
@@ -376,16 +425,14 @@ function ActionCard({ icon, title, sub, busyLabel, status, disabled, onClick }) 
 }
 
 function ProgressPanel({ sync, onClear }) {
-  const { status, logs, logEndRef, transfer, elapsed, totalTime, animIndex, phase } = sync
+  const { status, logs, logEndRef, transfer, elapsed, totalTime, phase } = sync
   const isRunning = status === STATUS.RUNNING
   const pct = transfer && transfer.total > 0
     ? Math.min(100, Math.round((transfer.bytes / transfer.total) * 100))
     : null
 
   const isTableProgress = transfer && transfer.total === 0 && transfer.bytes > 0
-  const animProgress = isTableProgress
-    ? (transfer.bytes / transfer.total)
-    : pct != null ? pct / 100 : 0
+  const animProgress = isTableProgress ? 0 : pct != null ? pct / 100 : 0
 
   const lastLog = logs[logs.length - 1]
 
@@ -398,7 +445,7 @@ function ProgressPanel({ sync, onClear }) {
         </div>
         <div className="progress-meta">
           {isRunning && (
-            <span className="progress-timer">⏱ {fmtDuration(elapsed)}</span>
+            <span className="progress-timer">{fmtDuration(elapsed)}</span>
           )}
           {!isRunning && totalTime != null && (
             <span className="progress-timer muted">Completed in {fmtDuration(totalTime)}</span>
@@ -409,7 +456,6 @@ function ProgressPanel({ sync, onClear }) {
 
       {isRunning && (
         <AnimationCanvas
-          animIndex={animIndex}
           isRunning={isRunning}
           progress={animProgress}
           phase={phase}

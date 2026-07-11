@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@500;600;700&family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -7,72 +7,93 @@
 }
 
 :root {
-  /* ── Neobank Mint ── */
-  --color-primary:    #0D3B2E;
-  --color-secondary:  #6B8679;
-  --color-tertiary:   #28C76F;
-  --color-neutral:    #F3FAF5;
-  --color-surface:    #FFFFFF;
-  --color-on-primary: #FFFFFF;
-
-  /* Surfaces */
-  --bg:            #F3FAF5;
+  /* ── Time Vortex — light "blueprint" ── */
+  --bg:            #EDF2FA;
+  --bg-deep:       #E3EAF6;
   --surface:       #FFFFFF;
-  --surface2:      #EEF5F0;
-  --surface3:      #E2EDE5;
-  --border:        rgba(107, 134, 121, 0.18);
-  --border-strong: rgba(107, 134, 121, 0.35);
+  --surface2:      #F2F6FC;
+  --surface3:      #E4EBF7;
+  --border:        rgba(30, 60, 120, 0.12);
+  --border-strong: rgba(30, 60, 120, 0.24);
 
-  /* Accent — reserve for exactly one action per screen */
-  --accent:      #28C76F;
-  --accent-dim:  rgba(40, 199, 111, 0.09);
-  --accent-glow: rgba(40, 199, 111, 0.22);
-  --accent-h:    #28C76F;
+  /* TARDIS blue — the one loud action per screen */
+  --accent:       #1D6FE0;
+  --accent-hot:   #3D8BFF;
+  --accent-dim:   rgba(29, 111, 224, 0.08);
+  --accent-glow:  rgba(29, 111, 224, 0.25);
+
+  /* Amber — console lamp, running states & warmth */
+  --amber:      #C77800;
+  --amber-dim:  rgba(199, 120, 0, 0.1);
+  --amber-glow: rgba(255, 180, 84, 0.3);
 
   /* Semantic */
-  --danger:     #D94040;
-  --danger-dim: rgba(217, 64, 64, 0.09);
-  --success:    #28C76F;
-  --warning:    #C07A20;
+  --danger:      #D8434E;
+  --danger-dim:  rgba(216, 67, 78, 0.09);
+  --success:     #1FA05E;
+  --success-dim: rgba(31, 160, 94, 0.1);
+  --warning:     var(--amber);
 
   /* Text */
-  --text:       #0D3B2E;
-  --text-muted: #6B8679;
-  --text-dim:   rgba(107, 134, 121, 0.55);
+  --text:       #10203E;
+  --text-muted: #5A6B8C;
+  --text-dim:   rgba(90, 107, 140, 0.55);
+  --on-accent:  #FFFFFF;
+
+  /* Elevation */
+  --shadow-sm: 0 1px 3px rgba(16, 32, 62, 0.07);
+  --shadow-md: 0 6px 24px rgba(16, 32, 62, 0.1);
+  --shadow-lg: 0 16px 48px rgba(16, 32, 62, 0.14);
 
   /* Radii */
-  --radius-sm: 6px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
   --radius:    var(--radius-lg);
 
-  /* Typography — Manrope for UI, JetBrains Mono for code/log content */
-  --font-display: 'Manrope', system-ui, sans-serif;
-  --font-body:    'Manrope', system-ui, sans-serif;
+  /* Typography */
+  --font-display: 'Unbounded', system-ui, sans-serif;
+  --font-body:    'Sora', system-ui, sans-serif;
   --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
   --font:         var(--font-body);
+
+  /* Motion */
+  --ease-out:    cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 [data-theme="dark"] {
-  --color-primary:    #28C76F;
-  --color-neutral:    #0A1A12;
-  --color-surface:    #0F2318;
+  /* ── Time Vortex — deep space ── */
+  --bg:            #050A18;
+  --bg-deep:       #030712;
+  --surface:       #0B1228;
+  --surface2:      #111A38;
+  --surface3:      #1A2548;
+  --border:        rgba(125, 155, 225, 0.13);
+  --border-strong: rgba(125, 155, 225, 0.26);
 
-  --bg:            #0A1A12;
-  --surface:       #0F2318;
-  --surface2:      #152C1E;
-  --surface3:      #1C3828;
-  --border:        rgba(107, 134, 121, 0.15);
-  --border-strong: rgba(107, 134, 121, 0.28);
+  --accent:       #5B9DFF;
+  --accent-hot:   #82B6FF;
+  --accent-dim:   rgba(91, 157, 255, 0.1);
+  --accent-glow:  rgba(91, 157, 255, 0.32);
 
-  --accent-dim:  rgba(40, 199, 111, 0.12);
-  --accent-glow: rgba(40, 199, 111, 0.28);
+  --amber:      #FFB454;
+  --amber-dim:  rgba(255, 180, 84, 0.1);
+  --amber-glow: rgba(255, 180, 84, 0.35);
 
-  --danger-dim: rgba(217, 64, 64, 0.12);
+  --danger:      #FF6B7A;
+  --danger-dim:  rgba(255, 107, 122, 0.1);
+  --success:     #3DDC97;
+  --success-dim: rgba(61, 220, 151, 0.1);
 
-  --text:       #E8F5EC;
-  --text-muted: #8BAF98;
-  --text-dim:   rgba(139, 175, 152, 0.45);
+  --text:       #E8EEFB;
+  --text-muted: #8FA0C4;
+  --text-dim:   rgba(143, 160, 196, 0.5);
+  --on-accent:  #05122B;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 24px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.5);
 }
 
 html, body, #root {
@@ -84,6 +105,7 @@ html, body, #root {
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background 0.35s ease, color 0.35s ease;
 }
 
 button {
@@ -93,4 +115,16 @@ button {
 
 input {
   font-family: var(--font-body);
+}
+
+::selection {
+  background: var(--accent-glow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

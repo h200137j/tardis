@@ -1,32 +1,37 @@
-# ⏱ TARDIS
+# 🌀 TARDIS
 ### Transfer And Retrieve Database In Seconds
 
 ![Latest Release](https://img.shields.io/github/v/release/h200137j/tardis?label=latest&style=flat-square)
 ![License](https://img.shields.io/github/license/h200137j/tardis?style=flat-square)
 
-A desktop app for Ubuntu Linux that automates MySQL database workflows in one click — pull from production, push to a test server, or import locally.
+Your production database is *over there*. You need it *right here*. Normally that means SSH, `mysqldump`, `gzip`, `scp`, `gunzip`, `mysql`, and at least one typo that ruins your afternoon.
+
+TARDIS is a desktop app for Ubuntu Linux that does the whole trip in one click — pull from production, push to a test server, or import locally — while you watch the bytes fly through a small time vortex. Like its namesake, it's bigger on the inside.
 
 Built with [Wails v2](https://wails.io), Go, and React.
 
 ---
 
-## Features
+## What it does
 
-- **Pull from Production** — SSH into prod, dump & compress the database, download to `~/Downloads` with a timestamp
-- **Push to Test Server** — Dump prod → download locally → upload to test server → import into MySQL → cleanup both servers
-- **Pull & Import Local** — Dump prod → download → import straight into your local MySQL in one step
-- **Import from File** — Pick any `.sql` or `.sql.gz` file and import it into your local database
-- **Cancel anytime** — Cancel mid-flight with automatic cleanup of temp files on both servers
-- **Live progress panel** — Elapsed timer, MB transferred, smooth progress bar, and per-step status
-- **Secure config** — Credentials stored at `~/.config/dbsync/config.json` with `0600` permissions
-- **Flexible auth** — Supports SSH password and private key authentication
-- **Clean dumps** — Strips the MariaDB sandbox mode comment automatically
+- 🕳️ **Pull from Production** — SSH into prod, dump & compress the database, land it in `~/Downloads` with a timestamp
+- 🚀 **Push to Test Server** — dump prod → download → upload to test → import into MySQL → cleanup both servers. Five hops, zero typing.
+- ⚡ **Pull & Import Local** — prod straight into your local MySQL in one step. The big blue button.
+- 📦 **Import from File** — any `.sql` or `.sql.gz` file, into your local database
+- 🧳 **Multiple projects** — separate credentials per project, switch with one click
+- 🙅 **Cancel anytime** — bail mid-flight; temp files on both servers get cleaned up automatically
+- 🌀 **Time vortex progress** — live warp-tunnel animation that changes color per phase (amber = dumping, blue = downloading, green = importing), plus elapsed timer, MB transferred, and per-step log
+- 📱 **Mobile remote** — scan a QR code, trigger syncs from your phone on the same Wi-Fi
+- 🔐 **Secure config** — credentials stored at `~/.config/dbsync/config.json` with `0600` permissions
+- 🗝️ **Flexible auth** — SSH password or private key
+- 🧹 **Clean dumps** — strips the MariaDB sandbox-mode comment automatically, skips tables you tell it to
+- 🌗 **Two themes** — deep-space dark and blueprint light
 
 ---
 
 ## Install
 
-👉 **[Download latest release](https://github.com/h200137j/tardis/releases/latest)**
+👉 **[Download latest release](https://github.com/h200137j/tardis/releases/latest)** — no sonic screwdriver required:
 
 ```bash
 sudo dpkg -i tardis_*.deb
@@ -57,7 +62,7 @@ cd tardis
 
 ## Configuration
 
-On first launch go to the **Settings** tab. Each server (Production, Test) has its own credentials, plus a Local section for your machine's MySQL.
+First launch → **Settings** tab. Each server (Production, Test) gets its own credentials, plus a Local section for your machine's MySQL. Add as many projects as you have clients, jobs, or questionable side quests.
 
 | Field | Description |
 |---|---|
@@ -69,12 +74,15 @@ On first launch go to the **Settings** tab. Each server (Production, Test) has i
 | Database User | MySQL user |
 | Database Password | MySQL password |
 | MySQL Binary Path | Local only — e.g. `/opt/lampp/bin/mysql` |
+| Skip Tables | Local only — tables to leave behind (`sessions, logs, cache`) |
 
-Settings are saved automatically and loaded on every launch.
+Settings save automatically and load on every launch.
 
 ---
 
-## How It Works
+## How it works
+
+No time travel, just well-behaved plumbing:
 
 ### Pull from Production
 ```
@@ -88,7 +96,7 @@ SSH prod → dump → SFTP download locally → SSH test → SFTP upload → gun
 
 ### Pull & Import Local
 ```
-SSH prod → dump → SFTP download → gunzip | /opt/lampp/bin/mysql → done
+SSH prod → dump → SFTP download → gunzip | mysql → done
 ```
 
 ### Import from File
@@ -105,7 +113,20 @@ Pick .sql / .sql.gz → gunzip | mysql → imported into local DB
 | Framework | [Wails v2](https://wails.io) |
 | Backend | Go + `golang.org/x/crypto/ssh` + `github.com/pkg/sftp` |
 | Frontend | React 18 + Vite |
-| Styling | Plain CSS, dark mode |
+| Styling | Plain CSS — the "Time Vortex" design system (see `design.md`) |
+
+---
+
+## FAQ
+
+**Is it actually bigger on the inside?**
+The `.deb` is a few MB. The databases it moves are not. So yes.
+
+**Does it work on Windows/macOS?**
+It's built for Ubuntu Linux. It might compile elsewhere. So might a lot of things.
+
+**What if I cancel halfway?**
+Temp files on both servers get cleaned up. No orphaned dumps drifting through space.
 
 ---
 

@@ -1143,13 +1143,31 @@ func (a *App) SyncAndImportLocal() error {
 // ── Local Import ──────────────────────────────────────────────────────────────
 
 func (a *App) PickFile() (string, error) {
-	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Select SQL dump file",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "SQL dumps (*.sql, *.sql.gz)", Pattern: "*.sql;*.sql.gz"},
-			{DisplayName: "All files", Pattern: "*"},
-		},
+	filters := []runtime.FileFilter{
+		{DisplayName: "SQL dumps (*.sql, *.sql.gz)", Pattern: "*.sql;*.sql.gz"},
+		{DisplayName: "All files", Pattern: "*"},
+	}
+	// macOS maps each pattern to a UTType by extension; "*" and multi-dot
+	// extensions like "sql.gz" resolve to nil and crash NSOpenPanel.
+	// Only plain extensions are safe there (.sql.gz still matches "gz").
+	if goruntime.GOOS == "darwin" {
+		filters = []runtime.FileFilter{
+			{DisplayName: "SQL dumps (*.sql, *.sql.gz)", Pattern: "*.sql;*.gz"},
+		}
+	}
+
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:   "Select SQL dump file",
+		Filters: filters,
 	})
+	if err != nil {
+		return "", err
+	}
+	if path != "" && goruntime.GOOS == "darwin" &&
+		!strings.HasSuffix(path, ".sql") && !strings.HasSuffix(path, ".sql.gz") {
+		return "", fmt.Errorf("unsupported file: %s (expected .sql or .sql.gz)", filepath.Base(path))
+	}
+	return path, nil
 }
 
 func (a *App) ImportLocal(filePath string) error {

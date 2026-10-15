@@ -45,7 +45,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.26'
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -62,7 +62,7 @@ jobs:
             dpkg-dev
 
       - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
 
       - name: Build binary
         run: ~/go/bin/wails build -tags webkit2_41 -ldflags "-X main.version=${TAG}"
@@ -166,7 +166,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.26'
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -174,7 +174,7 @@ jobs:
           node-version: '20'
 
       - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
 
       - name: Stamp version into wails.json
         shell: bash

@@ -795,7 +795,7 @@ func (a *App) SyncDatabase() error {
 
 	a.emit("sync:progress", "Dumping database...")
 	dumpCmd := fmt.Sprintf(
-		"mysqldump -u %s -p%s %s --single-transaction | sed '/^.*999999.*sandbox/d' | gzip > %s",
+		"set -o pipefail; mysqldump -u %s -p%s %s --single-transaction | sed '/^.*999999.*sandbox/d' | gzip > %s",
 		prod.DBUser, prod.DBPassword, prod.DBName, remoteFile,
 	)
 	if err := runSSHCommand(client, dumpCmd); err != nil {
@@ -952,7 +952,7 @@ func (a *App) SyncToTest() error {
 		dbPassFlag = "-p" + prod.DBPassword
 	}
 	remoteDump := fmt.Sprintf(
-		"mysqldump -u %s %s %s --single-transaction --quick --no-tablespaces --skip-add-locks | sed '/^.*999999.*sandbox/d' | gzip",
+		"set -o pipefail; mysqldump -u %s %s %s --single-transaction --quick --no-tablespaces --skip-add-locks | sed '/^.*999999.*sandbox/d' | gzip",
 		prod.DBUser, dbPassFlag, prod.DBName,
 	)
 
@@ -1065,7 +1065,7 @@ func (a *App) SyncAndImportLocal() error {
 		}
 	}
 	dumpCmd := fmt.Sprintf(
-		"mysqldump -u %s -p%s %s --single-transaction --quick --no-tablespaces --skip-add-locks%s | sed '/^.*999999.*sandbox/d' | gzip > %s",
+		"set -o pipefail; mysqldump -u %s -p%s %s --single-transaction --quick --no-tablespaces --skip-add-locks%s | sed '/^.*999999.*sandbox/d' | gzip > %s",
 		prod.DBUser, prod.DBPassword, prod.DBName, skipFlags, remoteFile,
 	)
 

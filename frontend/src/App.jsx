@@ -1,13 +1,22 @@
 import { useState, useEffect, useRef } from 'react'
 import HomeView from './views/HomeView'
 import SettingsView from './views/SettingsView'
-import { GetVersion, CheckForUpdate, OpenURL } from '../wailsjs/go/main/App'
+import VortexUI from './ui/VortexUI'
+import MissionUI from './ui/MissionUI'
+import { UI_OPTIONS, UISwitcher } from './ui/shared'
+import { useOperations } from './hooks/useOperations'
+import { CheckForUpdate, OpenURL } from '../wailsjs/go/main/App'
 import './App.css'
 
 function getInitialDark() {
   const stored = localStorage.getItem('theme')
   if (stored) return stored === 'dark'
   return window.matchMedia('(prefers-color-scheme: dark)').matches
+}
+
+function getInitialUi() {
+  const stored = localStorage.getItem('ui')
+  return UI_OPTIONS.some(o => o.id === stored) ? stored : 'vortex'
 }
 
 function Starfield() {
@@ -141,23 +150,56 @@ function MoonIcon() {
 }
 
 export default function App() {
-  const [view, setView]           = useState('home')
-  const [version, setVersion]     = useState('')
+  const [view, setViewState]      = useState('home')
   const [update, setUpdate]       = useState(null)
   const [dismissed, setDismissed] = useState(false)
   const [dark, setDark]           = useState(getInitialDark)
+  const [ui, setUi]               = useState(getInitialUi)
+  const ops = useOperations()
+  const version = ops.version
+  const classic = ui === 'classic'
+
+  const setView = next => {
+    setViewState(next)
+    if (next === 'home') ops.reloadConfig()
+  }
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
     localStorage.setItem('theme', dark ? 'dark' : 'light')
   }, [dark])
 
+  // Vortex and Mission are dark-only. Classic keeps the saved light/dark choice.
   useEffect(() => {
-    GetVersion().then(setVersion).catch(() => {})
+    document.documentElement.setAttribute('data-theme', classic && !dark ? 'light' : 'dark')
+    localStorage.setItem('ui', ui)
+  }, [classic, dark, ui])
+
+  useEffect(() => {
     CheckForUpdate().then(info => {
       if (info.has_update) setUpdate(info)
     }).catch(() => {})
   }, [])
+
+  const banner = update && !dismissed && (
+    <div className="update-banner">
+      <span className="update-banner-lamp" />
+      <span className="update-banner-text">
+        <strong>{update.latest}</strong> is out
+      </span>
+      <button className="update-banner-btn" onClick={() => OpenURL(update.download_url)}>
+        Download
+      </button>
+      <button
+        className="update-banner-dismiss"
+        onClick={() => setDismissed(true)}
+        aria-label="Dismiss"
+      >✕</button>
+    </div>
+  )
+
+  const shared = { ops, view, setView, ui, setUi, banner }
+  if (ui === 'vortex')  return <VortexUI {...shared} />
+  if (ui === 'mission') return <MissionUI {...shared} />
 
   return (
     <>
@@ -179,6 +221,7 @@ export default function App() {
               onClick={() => setView('settings')}
             >Settings</button>
           </div>
+          <UISwitcher ui={ui} onChange={setUi} className="nav-ui-switcher" />
           <button
             className="nav-theme-btn"
             onClick={() => setDark(d => !d)}
@@ -190,28 +233,13 @@ export default function App() {
           {version && <span className="nav-version">{version}</span>}
         </nav>
 
-        {update && !dismissed && (
-          <div className="update-banner">
-            <span className="update-banner-lamp" />
-            <span className="update-banner-text">
-              <strong>{update.latest}</strong> is out
-            </span>
-            <button className="update-banner-btn" onClick={() => OpenURL(update.download_url)}>
-              Download
-            </button>
-            <button
-              className="update-banner-dismiss"
-              onClick={() => setDismissed(true)}
-              aria-label="Dismiss"
-            >✕</button>
-          </div>
-        )}
+        {banner}
 
         <main className="main-content">
           <div
             className={view === 'home' ? 'view-active' : ''}
             style={{ display: view === 'home' ? undefined : 'none' }}
-          ><HomeView /></div>
+          ><HomeView ops={ops} /></div>
           <div
             className={view === 'settings' ? 'view-active' : ''}
             style={{ display: view === 'settings' ? undefined : 'none' }}

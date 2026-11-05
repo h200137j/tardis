@@ -122,6 +122,15 @@
   box-shadow: 0 2px 12px var(--accent-glow);
 }
 
+/* Keeps the select clickable inside the draggable nav. */
+.nav-ui-switcher {
+  margin-left: 12px;
+  --wails-draggable: no-drag;
+}
+
+.nav-ui-switcher .ui-switcher-options { border-radius: 14px; }
+.nav-ui-switcher .ui-switcher-options button { min-height: 24px; border-radius: 12px; font-size: 12px; }
+
 .nav-theme-btn {
   background: transparent;
   border: none;
